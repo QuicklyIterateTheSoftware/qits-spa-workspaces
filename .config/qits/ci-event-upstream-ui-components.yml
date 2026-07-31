@@ -1,0 +1,50 @@
+# The release train's first hop, demonstrated: this repository consumes @qits/ui-components, so it
+# declares an interest in that library's green builds and runs a pipeline of its own when one lands.
+#
+# The trigger type is the second one qits-ci has. A push runs .config/qits/ci-post-receive.yml at the
+# pushed commit; this file runs when a domain event on the platform's bus matches the selection below,
+# against the head of main. Both are ordinary pipelines and neither knows about the other.
+#
+# THIS STEP IS A DEMONSTRATION AND SAYS SO. It prints the four QITS_EVENT_* variables an
+# event-triggered container receives and nothing else — no install, no build, no commit. The real hop
+# is the version bump: read the released version out of the event, write it into package.json, run the
+# install, and push the result, so that a library release walks into every consumer without a person
+# carrying it. That step waits on ReleaseEvent, which does not exist yet; BuildSuccessful says a build
+# passed and carries no version, so a bump written against it today would be guessing. When
+# ReleaseEvent lands, `event:` changes and the script below is replaced by the bump.
+#
+# jq is what the platform's docs assume a step reaches for, and node-base does not carry it (measured:
+# `jq: not found`). node does, and it parses JSON, so the one extracted field below goes through
+# `node -p`. Either is fine — the payload arrives as one verbatim string and reading it is the step's
+# business.
+#
+# THE LOOP FOOTGUN, because this is the file where it bites: a `when:` that matches an event this
+# repository's OWN build publishes is an unbounded build loop. This repo's green builds publish
+# BuildSuccessful with repoId qits-spa-workspaces; the selection below is `exact` on
+# qits-spa-ui-components, so this repo's own builds do not match it. Widen that to a prefix like
+# `qits-spa-` and this file triggers a build that publishes an event that triggers a build, forever —
+# each hop is a new event id, so qits-ci's at-most-once dedupe never engages. It stops replays, not
+# descendants. Review is the only guard today; see qits-ci's README.
+event: BuildSuccessful
+when:
+  # One group, two entries, so both must hold: the library, on the branch this platform tracks.
+  - repoId: { exact: qits-spa-ui-components }
+    branch: { exact: main }
+steps:
+  - image: qits/build-images/node-base:latest
+    timeout-seconds: 300
+    script: |
+      # The daemon runs this with `bash -c` and no -e. -u is the load-bearing half here: the whole
+      # point of this step is that the four variables are set, so an unset one must stop it rather
+      # than print an empty line that reads like a pass.
+      set -eu
+
+      echo "Triggered by event $QITS_EVENT_NAME"
+      echo "  QITS_EVENT_ID:          $QITS_EVENT_ID"
+      echo "  QITS_EVENT_NAME:        $QITS_EVENT_NAME"
+      echo "  QITS_EVENT_OCCURRED_AT: $QITS_EVENT_OCCURRED_AT"
+      echo "  QITS_EVENT_PAYLOAD:     $QITS_EVENT_PAYLOAD"
+
+      # And the same payload read as data rather than echoed, which is what a real step does with it.
+      echo "  upstream repo:          $(node -p 'JSON.parse(process.env.QITS_EVENT_PAYLOAD).repoId')"
+      echo "  upstream commit:        $(node -p 'JSON.parse(process.env.QITS_EVENT_PAYLOAD).commitSha')"
