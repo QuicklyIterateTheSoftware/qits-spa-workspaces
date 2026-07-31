@@ -1,0 +1,104 @@
+<header class="head">
+  <div>
+    <h1>Workspaces</h1>
+    <p class="lede">{{ summary() }}</p>
+  </div>
+  @if (repository()) {
+    <qits-button variant="secondary" size="sm" (pressed)="reloadWorkspaces()">Refresh</qits-button>
+  }
+</header>
+
+<section class="picker" aria-label="Repository">
+  <label class="field">
+    <span>Project</span>
+    <select [value]="selectedProjectId()" (change)="chooseProject($event)">
+      <option value="">Choose a project…</option>
+      @for (project of projectList(); track project.id) {
+        <option [value]="project.id">{{ project.name }}</option>
+      }
+    </select>
+  </label>
+
+  <label class="field">
+    <span>Repository</span>
+    <select
+      [value]="selectedRepositoryId()"
+      [disabled]="repositoryList().length === 0"
+      (change)="chooseRepository($event)"
+    >
+      <option value="">Choose a repository…</option>
+      @for (repo of repositoryList(); track repo.id) {
+        <option [value]="repo.id">{{ repo.id }} · {{ repo.archetype.toLowerCase() }}</option>
+      }
+    </select>
+  </label>
+</section>
+
+<app-async
+  [state]="projects()"
+  loadingLabel="Loading projects"
+  errorLabel="Could not load the projects"
+  (retry)="loadProjects()"
+/>
+
+<app-async
+  [state]="repositories()"
+  loadingLabel="Loading repositories"
+  errorLabel="Could not load the repositories"
+  (retry)="reloadRepositories()"
+/>
+
+@if (repositories().kind === 'ready' && repositoryList().length === 0) {
+  <app-empty message="This project holds no repositories." />
+}
+
+@if (releases().length > 0) {
+  <section class="releases" aria-label="Releases made here">
+    <h2>Released from this screen</h2>
+    <ul>
+      @for (release of releases(); track release.result.commitSha) {
+        <li>
+          <strong>{{ release.result.version }}</strong>
+          — <code>{{ release.result.branch }}</code> from workspace
+          <code>{{ release.workspaceLabel }}</code
+          >, merge commit
+          <code [title]="release.result.commitSha">{{ release.result.commitSha }}</code>
+        </li>
+      }
+    </ul>
+  </section>
+}
+
+@if (repository()) {
+  <app-async
+    [state]="workspaces()"
+    loadingLabel="Loading workspaces"
+    errorLabel="Could not load the workspaces"
+    (retry)="reloadWorkspaces()"
+  />
+
+  @if (workspaces().kind === 'ready') {
+    @if (workspaceList().length === 0) {
+      <app-empty
+        message="No live workspaces in this repository. Integrated and abandoned ones are history, and are not listed here."
+      />
+    } @else {
+      <ul class="workspaces">
+        @for (workspace of workspaceList(); track workspace.id) {
+          <li>
+            <app-workspace-row [workspace]="workspace">
+              <app-integrate-panel
+                [workspace]="workspace"
+                [targetBranch]="targetBranch()"
+                (integrated)="onIntegrated(workspace, $event)"
+                (refresh)="reloadWorkspaces()"
+              />
+            </app-workspace-row>
+          </li>
+        }
+      </ul>
+    }
+  }
+} @else if (selectedProjectId() && repositories().kind === 'ready') {
+  <app-empty message="Pick a repository above to see its workspaces." />
+}
