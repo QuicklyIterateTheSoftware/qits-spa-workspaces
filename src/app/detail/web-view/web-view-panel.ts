@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   effect,
@@ -12,9 +13,12 @@ import {
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { QitsButton } from '@qits/ui-components';
 import { QITS_API_BASE } from '../../api/api-base';
+import { ComponentMapApi, type ComponentMapDto } from '../../api/component-map-api';
 import type { ServiceDto } from '../../api/services-api';
 import { WorkspaceServices } from '../../api/workspace-services';
 import { Empty } from '../../ui/empty';
+import { PickedContext } from '../chat/picked-context';
+import { ElementPicker, type FramePick } from './element-picker';
 
 /** The states in which a declared service is worth framing. Anything else has nothing listening. */
 const LIVE: readonly ServiceDto['state'][] = ['STARTING', 'READY', 'RESTARTING'];
@@ -41,6 +45,11 @@ const LIVE: readonly ServiceDto['state'][] = ['STARTING', 'READY', 'RESTARTING']
  * services entry, which also colours the Services tab's dot and fills its panel. The frame itself is
  * a document load rather than an API read, and it happens once — the panel latches on first
  * selection and then only hides, so switching tabs never reloads the app you were using.
+ *
+ * **The picker adds `1` per activation**, `GET /component-map`, and that is the whole of its cost.
+ * It is fetched on arming rather than on load, because a tab nobody picks in should not pay for a
+ * scan of the tree, and it is not fetched per *pick*, because a map that misses a component created
+ * since the last activation simply skips attribution.
  */
 @Component({
   selector: 'app-web-view-panel',
@@ -53,6 +62,8 @@ export class WebViewPanel {
   private readonly entry = inject(WorkspaceServices);
   private readonly apiBase = inject(QITS_API_BASE);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly maps = inject(ComponentMapApi);
+  private readonly picked = inject(PickedContext);
 
   readonly workspaceRowId = input.required<number>();
 
@@ -74,11 +85,35 @@ export class WebViewPanel {
   /** Bumped on every frame load, so anything reading the framed location re-reads it. */
   protected readonly loads = signal(0);
 
+  /** Whether the picker is armed. One-shot unless the pick was made with shift held. */
+  protected readonly picking = signal(false);
+
+  /** The attribution map for this activation, or null when it never arrived. */
+  private readonly map = signal<ComponentMapDto | null>(null);
+
+  /** How many elements are picked, from the store rather than from a count kept here. */
+  protected readonly pickedCount = computed(() => this.picked.elements().length);
+
+  private readonly picker = new ElementPicker({
+    route: () => `/${this.livePath() ?? ''}`,
+    map: () => this.map(),
+    picked: (pick) => this.onPicked(pick),
+  });
+
   constructor() {
     effect(() => {
       const workspaceRowId = this.workspaceRowId();
       this.entry.use(workspaceRowId);
     });
+
+    // The marks in the frame follow the store, in both directions: a chip removed on the prompt
+    // panel has to take its outline with it, or the frame becomes a second, wrong answer.
+    effect(() => {
+      const selectors = this.picked.elements().map((element) => element.selector);
+      this.picker.mark(selectors);
+    });
+
+    inject(DestroyRef).onDestroy(() => this.picker.detach());
 
     // A service that goes away takes the selection with it; a first live one takes it up.
     effect(() => {
@@ -209,6 +244,74 @@ export class WebViewPanel {
 
   protected onFrameLoad(): void {
     this.loads.update((count) => count + 1);
+    // Navigating inside the app replaces the document, so the picker re-attaches through the load
+    // hook — one code path for a link, for the URL bar and for a fresh source.
+    if (this.picking()) {
+      this.attachPicker();
+    }
+  }
+
+  /**
+   * Arm or disarm the picker.
+   *
+   * Arming is what fetches the map, once. A frame this page cannot see into is refused rather than
+   * armed: the toolbar already says why, and a mode that captured nothing would be worse.
+   */
+  protected togglePicking(): void {
+    if (this.picking()) {
+      this.picking.set(false);
+      this.picker.arm(false);
+      return;
+    }
+    if (!this.sameOrigin()) {
+      return;
+    }
+    this.picking.set(true);
+    this.picker.arm(true);
+    this.attachPicker();
+    void this.loadMap();
+  }
+
+  protected clearPicks(): void {
+    this.picked.clear();
+  }
+
+  /** A pick: into the store, and disarmed unless shift said to keep going. */
+  private onPicked(pick: FramePick): void {
+    this.picked.toggleElement({
+      tag: pick.tag,
+      selector: pick.selector,
+      textPreview: pick.textPreview,
+      route: pick.route,
+      componentName: pick.componentName,
+      sourceFiles: pick.sourceFiles,
+    });
+    if (!pick.keepPicking) {
+      this.picking.set(false);
+      this.picker.arm(false);
+    }
+  }
+
+  private attachPicker(): void {
+    const document = frameDocument(this.frame()?.nativeElement ?? null);
+    if (document) {
+      this.picker.attach(document);
+    }
+  }
+
+  /**
+   * The map, once per activation.
+   *
+   * A failure is swallowed: attribution is an enrichment, and a pick with a selector and a route is
+   * still a useful pick. The tree the scanner does not recognise answers an empty list rather than
+   * an error, and that lands here as the same "no attribution" screen.
+   */
+  private async loadMap(): Promise<void> {
+    try {
+      this.map.set(await this.maps.componentMap(this.workspaceRowId()));
+    } catch {
+      this.map.set(null);
+    }
   }
 
   /**
@@ -262,6 +365,18 @@ export class WebViewPanel {
       // Cross-origin: the frame cannot be driven from here, so replace it wholesale instead.
     }
     element.src = target;
+  }
+}
+
+/** The framed document, or null when the frame is missing or on another origin. */
+function frameDocument(frame: HTMLIFrameElement | null): Document | null {
+  if (!frame) {
+    return null;
+  }
+  try {
+    return frame.contentDocument;
+  } catch {
+    return null;
   }
 }
 

@@ -293,6 +293,25 @@ export class PromptPanel {
     }
   }
 
+  /**
+   * Open a picked element's source file in the viewer.
+   *
+   * **The closest match, not the exact path.** A component map is a fact about the tree when it was
+   * scanned, and a rename between the pick and the press must not become a dead link — so the file
+   * browser seeds its name filter with the path exactly as if it had been typed, narrows, and lets
+   * the user see *why*. A browser that silently jumped somewhere near where you asked would be worse
+   * than one that missed.
+   */
+  /** The last segment, which is what fits on a chip. The full path is the title. */
+  protected fileName(path: string): string {
+    const at = path.lastIndexOf('/');
+    return at === -1 ? path : path.slice(at + 1);
+  }
+
+  protected openSource(path: string): void {
+    this.nav.openClosest(path);
+  }
+
   protected insertElement(index: number): void {
     const element = this.picked.elements()[index];
     if (element) {

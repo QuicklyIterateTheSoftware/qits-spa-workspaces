@@ -118,6 +118,17 @@
               {{ element.componentName ?? element.selector }} · {{ element.route }}
             </span>
           </button>
+          @for (source of element.sourceFiles; track source) {
+            <button
+              type="button"
+              class="open"
+              [attr.aria-label]="'Open ' + source"
+              [title]="source"
+              (click)="openSource(source)"
+            >
+              {{ fileName(source) }}
+            </button>
+          }
           <button
             type="button"
             class="drop"

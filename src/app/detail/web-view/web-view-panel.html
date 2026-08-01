@@ -48,6 +48,25 @@
         ⌾
       </button>
 
+      @if (sameOrigin()) {
+        <button
+          type="button"
+          class="pick"
+          [class.armed]="picking()"
+          [attr.aria-pressed]="picking()"
+          (click)="togglePicking()"
+        >
+          {{ picking() ? 'Picking — click an element' : 'Pick an element' }}
+        </button>
+      } @else {
+        <span class="note">Picker unavailable on external pages.</span>
+      }
+
+      @if (pickedCount() > 0) {
+        <span class="count"> {{ pickedCount() }} picked </span>
+        <qits-button variant="ghost" size="sm" (pressed)="clearPicks()">Clear</qits-button>
+      }
+
       @if (livePath(); as path) {
         <code class="here">/{{ path }}</code>
       } @else if (!sameOrigin()) {
@@ -72,4 +91,11 @@
     The frame is served through this platform, so it shares an origin with this page. It is loaded
     once: switching tabs hides it and never reloads the application you are using.
   </p>
+
+  @if (picking()) {
+    <p class="note">
+      A plain click picks one element and hands the app back. Hold shift to keep picking; clicking a
+      picked element unpicks it. Picks appear on the prompt panel in the Chat tab.
+    </p>
+  }
 }

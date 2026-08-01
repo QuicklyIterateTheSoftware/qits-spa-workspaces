@@ -3,7 +3,9 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { EVENT_SOURCE_FACTORY, type EventSourceLike } from '../../api/event-source';
+import { PickedContext } from '../chat/picked-context';
 import type { ServiceDto, ServiceState } from '../../api/services-api';
+import { provideRouter } from '@angular/router';
 import { WebViewPanel } from './web-view-panel';
 
 const settle = async () => {
@@ -64,6 +66,8 @@ describe('WebViewPanel', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: EVENT_SOURCE_FACTORY, useValue: () => new FakeStream() },
+        // A picked element's source files deep-link into the Files tab, which is a URL write.
+        provideRouter([]),
       ],
     });
     http = TestBed.inject(HttpTestingController);
@@ -174,5 +178,108 @@ describe('WebViewPanel', () => {
       });
     fixture.detectChanges();
     expect(frame()?.getAttribute('src')).toBe('/workspaces/service/7/dev/home');
+  });
+
+  describe('the element picker', () => {
+    const pickButton = () => element().querySelector<HTMLButtonElement>('.pick')!;
+
+    /**
+     * Put something in the framed document.
+     *
+     * jsdom gives the iframe a real, same-origin document but never loads its `src`, so the body is
+     * written here — which is exactly the same-origin access the picker itself depends on.
+     */
+    function framedButton(): HTMLElement {
+      const framed = frame()!.contentDocument!;
+      framed.open();
+      framed.write('<body><app-greeting><button id="go">Go</button></app-greeting></body>');
+      framed.close();
+      return framed.querySelector<HTMLElement>('#go')!;
+    }
+
+    async function armed(): Promise<HTMLElement> {
+      await open([service('dev', 'READY', { webViewable: true, webView: { entryPath: 'home' } })]);
+      const button = framedButton();
+      pickButton().click();
+      fixture.detectChanges();
+      http.expectOne('/workspaces/container/7/component-map').flush({
+        framework: 'angular',
+        components: [
+          {
+            className: 'GreetingComponent',
+            componentFile: 'webui/src/app/greeting.ts',
+            styleFiles: [],
+            selectors: [{ element: 'app-greeting' }],
+          },
+        ],
+      });
+      await settle();
+      fixture.detectChanges();
+      return button;
+    }
+
+    it('fetches the attribution map once per activation, and never per pick', async () => {
+      const button = await armed();
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+      http.expectNone('/workspaces/container/7/component-map');
+      expect(TestBed.inject(PickedContext).elements()).toHaveLength(1);
+    });
+
+    it('captures the component, the selector and the app-side route', async () => {
+      const button = await armed();
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+      const pick = TestBed.inject(PickedContext).elements()[0];
+      expect(pick.tag).toBe('button');
+      expect(pick.selector).toBe('#go');
+      expect(pick.componentName).toBe('GreetingComponent');
+      expect(pick.sourceFiles).toEqual(['webui/src/app/greeting.ts']);
+    });
+
+    it('disarms after a plain pick, so the framed app is usable again at once', async () => {
+      const button = await armed();
+      expect(pickButton().textContent).toContain('Picking');
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+      expect(pickButton().textContent).toContain('Pick an element');
+    });
+
+    it('keeps picking while shift is held', async () => {
+      const button = await armed();
+      button.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }),
+      );
+      fixture.detectChanges();
+      expect(pickButton().textContent).toContain('Picking');
+    });
+
+    it('unpicks an element that is picked again, and counts what is held', async () => {
+      const button = await armed();
+      button.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }),
+      );
+      fixture.detectChanges();
+      expect(text()).toContain('1 picked');
+
+      button.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }),
+      );
+      fixture.detectChanges();
+      expect(TestBed.inject(PickedContext).elements()).toHaveLength(0);
+    });
+
+    it('marks a picked element inside the frame, and unmarks it when the store drops it', async () => {
+      const button = await armed();
+      button.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, shiftKey: true }),
+      );
+      fixture.detectChanges();
+      expect(button.dataset['qitsPicked']).toBe('true');
+
+      TestBed.inject(PickedContext).clear();
+      fixture.detectChanges();
+      expect(button.dataset['qitsPicked']).toBeUndefined();
+    });
   });
 });

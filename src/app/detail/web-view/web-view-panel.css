@@ -49,6 +49,29 @@
   background: #f9fafb;
 }
 
+.pick {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.25rem;
+  background: #fff;
+  color: #4b5563;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.pick.armed {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.count {
+  color: #4b5563;
+  font-size: 0.8rem;
+}
+
 .here {
   color: #4b5563;
   font-size: 0.8rem;
