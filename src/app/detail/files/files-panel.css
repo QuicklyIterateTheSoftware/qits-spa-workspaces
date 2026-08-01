@@ -1,0 +1,78 @@
+:host {
+  display: block;
+  padding-bottom: 0.5rem;
+}
+
+.filter {
+  margin-bottom: 0.5rem;
+}
+
+.box {
+  width: 100%;
+  max-width: 26rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.35rem;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.box:focus {
+  border-color: #2563eb;
+  outline: 2px solid #bfdbfe;
+  outline-offset: 0;
+}
+
+.hint {
+  margin: 0.3rem 0 0;
+  color: #6b7280;
+  font-size: 0.78rem;
+}
+
+.unsearched {
+  margin: 0.4rem 0 0;
+  color: #b45309;
+  font-size: 0.8rem;
+}
+
+.frameworks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.chip {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #374151;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: #f9fafb;
+}
+
+.chip.on {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

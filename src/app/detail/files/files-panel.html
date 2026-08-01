@@ -1,0 +1,62 @@
+<div class="filter">
+  <label class="sr" for="file-filter">Filter files by name</label>
+  <input
+    id="file-filter"
+    class="box"
+    type="search"
+    autocomplete="off"
+    spellcheck="false"
+    placeholder="Filter by name — fuzzy, or a glob like *.ts"
+    [value]="query()"
+    (input)="onQuery($any($event.target).value)"
+  />
+  @if (fullyExpanded()) {
+    <p class="hint" role="status">Searching — the tree is open to its full depth.</p>
+  }
+</div>
+
+<app-async
+  [state]="listing()"
+  loadingLabel="Loading files"
+  errorLabel="Could not load the working tree"
+  (retry)="reload()"
+/>
+
+@if (noMatch()) {
+  <app-empty message="No files match." />
+}
+
+@if (rows().length > 0) {
+  <app-file-tree
+    [rows]="rows()"
+    [selected]="selectedPath()"
+    [loading]="pending()"
+    label="Working tree"
+    (openFile)="onOpenFile($event)"
+    (toggleDir)="onToggleDir($event)"
+  />
+}
+
+@if (unsearched() > 0) {
+  <p class="unsearched" role="status">
+    {{ unsearched() }} collapsed {{ unsearched() === 1 ? 'directory' : 'directories' }} not searched
+    — open to include.
+  </p>
+}
+
+@if (frameworkToggles().length > 0) {
+  <footer class="frameworks" aria-label="Detected frameworks">
+    @for (framework of frameworkToggles(); track framework.frameworkId) {
+      <button
+        type="button"
+        class="chip"
+        [class.on]="isFrameworkOn(framework.frameworkId)"
+        [attr.aria-pressed]="isFrameworkOn(framework.frameworkId)"
+        [attr.data-framework]="framework.frameworkId"
+        (click)="toggleFramework(framework.frameworkId)"
+      >
+        {{ framework.label }}
+      </button>
+    }
+  </footer>
+}

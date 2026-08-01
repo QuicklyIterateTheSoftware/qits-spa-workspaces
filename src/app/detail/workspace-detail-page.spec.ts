@@ -140,6 +140,20 @@ describe('WorkspaceDetailPage', () => {
     await settle();
   }
 
+  /**
+   * The Files panel's own budget, paid the first time its tab is selected and never again — the `T`
+   * in the page's `3 + T`. Two reads of one workspace's container: the whole eager tree, and the
+   * detection that gates the framework footer.
+   */
+  function answerFilesPanel(workspaceRowId = 7): void {
+    http
+      .expectOne(`/workspaces/container/${workspaceRowId}/files`)
+      .flush({ paths: [], lazyDirs: [], generation: 'gen-1' });
+    http
+      .expectOne(`/workspaces/container/${workspaceRowId}/detection`)
+      .flush({ projects: [], frameworks: [], links: [], generation: 'gen-1' });
+  }
+
   it('reads three things and opens one stream, and nothing else', async () => {
     await harness.navigateByUrl('/repositories/qits-ci/workspaces/7');
 
@@ -183,6 +197,10 @@ describe('WorkspaceDetailPage', () => {
 
     files.click();
     await settle();
+    // Selecting a tab that has never been opened costs that tab's requests, which is exactly why the
+    // tab is in the URL: it is expensive state, so it is addressable state.
+    answerFilesPanel();
+    await settle();
 
     expect(TestBed.inject(Location).path()).toContain('tab=files');
     expect(element().querySelector('.tab.active')?.textContent?.trim()).toBe('Files');
@@ -205,6 +223,8 @@ describe('WorkspaceDetailPage', () => {
 
     await harness.navigateByUrl('/repositories/qits-ci/workspaces/7?tab=files');
     await settle();
+    answerFilesPanel(7);
+    await settle();
     expect(detail.remounts()).toBe(0);
 
     // A move within one repository re-reads the process lookup and nothing else: the list already
@@ -213,6 +233,9 @@ describe('WorkspaceDetailPage', () => {
     http
       .expectOne((request) => request.url.endsWith('/8/active-process'))
       .flush({ technicalProcessId: null });
+    await settle();
+    // The remount tore the panel down with the rest of the subtree, so it reads the new container.
+    answerFilesPanel(8);
     await settle();
 
     expect(detail.remounts()).toBe(1);

@@ -20,6 +20,7 @@ import { Async } from '../ui/async';
 import { IDLE, LOADING, failed, ready, type Loadable } from '../ui/loadable';
 import { ActivityBar } from './activity-bar';
 import { AgentActivityMemory } from './agent-activity-memory';
+import { FilesPanel } from './files/files-panel';
 import { PanelPlaceholder } from './panel-placeholder';
 import { StartingPanel } from './starting/starting-panel';
 import { StatusStrip } from './status-strip';
@@ -35,10 +36,9 @@ import { DEFAULT_TAB, DURABLE_TABS, STARTING_SLUG, isDurableTab, type TabDef } f
  */
 export const LINGER_MS = 5000;
 
-/** What each durable tab says while its panel is still to come. */
+/** What each durable tab says while its panel is still to come. Files has landed and is not here. */
 const PANEL_NOTES: Readonly<Record<string, string>> = {
   chat: 'The conversation and the prompt panel land next.',
-  files: 'The working-tree browser and the file viewer land next.',
   services: 'The services panel and the durable events feed land next.',
   actions: 'The action list, the run history and the bootstrap section land next.',
   'web-view': 'The framed application lands next.',
@@ -91,7 +91,16 @@ const PANEL_NOTES: Readonly<Record<string, string>> = {
 @Component({
   selector: 'app-workspace-detail-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ActivityBar, Async, PanelPlaceholder, StartingPanel, StatusStrip, TabHost, TabPanel],
+  imports: [
+    ActivityBar,
+    Async,
+    FilesPanel,
+    PanelPlaceholder,
+    StartingPanel,
+    StatusStrip,
+    TabHost,
+    TabPanel,
+  ],
   templateUrl: './workspace-detail-page.html',
   styleUrl: './workspace-detail-page.css',
 })

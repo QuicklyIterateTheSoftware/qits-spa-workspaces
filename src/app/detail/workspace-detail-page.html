@@ -75,7 +75,11 @@
       }
       @for (tab of durableTabs; track tab.slug) {
         <ng-template [appTabPanel]="tab.slug">
-          <app-panel-placeholder [title]="tab.label" [note]="panelNote(tab.slug)" />
+          @if (tab.slug === 'files') {
+            <app-files-panel [workspaceRowId]="ws.id" [visible]="selected() === 'files'" />
+          } @else {
+            <app-panel-placeholder [title]="tab.label" [note]="panelNote(tab.slug)" />
+          }
         </ng-template>
       }
     </app-tab-host>
