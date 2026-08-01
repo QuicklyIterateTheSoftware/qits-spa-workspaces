@@ -31,13 +31,13 @@ export type WorkspaceRuntimeStatus = 'RUNNING' | 'STOPPED' | 'PROVISIONING' | 'F
 /**
  * The coding-agent activity rollup, as last reported by the in-container `workspace-daemon`.
  *
- * **`ENDED` is here before the host can send it, deliberately.** The registry evicts a workspace's
- * entry the moment a session ends, so the rollup answers `BUSY | WAITING | IDLE` or null today and
- * `ENDED` never arrives. It is declared anyway because the activity bar's whole ordering rule — a
- * session that has just stopped bubbles to the far left, since that is the workspace wanting your
- * next prompt — is decoration without it. The host change that stops the eviction is in flight; a
- * client that already renders the value needs no second pass when it lands, and until then the
- * branch is simply never taken.
+ * **`ENDED` arrives, and then ages out.** The registry used to evict a workspace's entry the moment
+ * a session ended, which made `ENDED` unreachable; it now keeps the entry and expires it after
+ * thirty minutes (`qits.workspace.agent-activity.ended-ttl-ms`). So the rollup answers `ENDED` for
+ * half an hour after a session stops and null after that. That window is what the activity bar's
+ * ordering rule needs — a session that has just stopped bubbles to the far left, since that is the
+ * workspace wanting your next prompt — and it survives a page reload. A live report always wins: a
+ * resume overwrites the `ENDED` entry.
  */
 export type AgentActivityState = 'IDLE' | 'BUSY' | 'WAITING' | 'ENDED';
 

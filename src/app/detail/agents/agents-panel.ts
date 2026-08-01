@@ -115,11 +115,11 @@ export class AgentsPanel {
   /**
    * The activity badge.
    *
-   * `ENDED` is in the vocabulary and **the host never emits it**: the registry evicts an entry on
-   * `ENDED` and the rollup answers busy, waiting, idle or nothing at all. So a session that has just
-   * stopped reads as "no active agent" here rather than as "ended" — which is stated below the badge
-   * rather than papered over, because the difference is exactly the moment a workspace is waiting for
-   * your next prompt.
+   * `ENDED` **does arrive**: the host keeps the entry when a session stops and expires it after
+   * thirty minutes. So a session that has just stopped reads as "Ended" here, and falls back to "No
+   * active agent" once the window passes. The difference is worth drawing — "Ended" is exactly the
+   * moment a workspace is waiting for your next prompt — so it gets its own tone rather than
+   * borrowing idle's.
    */
   protected readonly badge = computed(() => {
     switch (this.activity()) {
@@ -130,7 +130,7 @@ export class AgentsPanel {
       case 'IDLE':
         return { label: 'Idle', tone: 'idle' };
       case 'ENDED':
-        return { label: 'Ended', tone: 'idle' };
+        return { label: 'Ended', tone: 'ended' };
       default:
         return { label: 'No active agent', tone: 'none' };
     }

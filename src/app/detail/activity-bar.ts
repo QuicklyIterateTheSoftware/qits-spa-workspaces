@@ -35,9 +35,9 @@ interface ActivityButton {
  * **With nothing to say it renders nothing at all** — not an empty strip. A row that is always there
  * and usually empty is a row people stop looking at.
  *
- * `ENDED` is drawn here and cannot arrive yet: the host evicts a workspace's entry on session end
- * rather than reporting it. The host change is in flight and this needs no second pass when it
- * lands.
+ * `ENDED` arrives and then ages out: the host keeps a workspace's entry when its session ends and
+ * expires it after thirty minutes. That window is why a just-stopped workspace can hold the front
+ * of the row across a reload, and why it leaves on its own afterwards.
  */
 @Component({
   selector: 'app-activity-bar',

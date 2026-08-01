@@ -12,8 +12,8 @@
     </span>
   </p>
   <p class="note">
-    A session that has just stopped reads as “no active agent” rather than “ended”: the host evicts
-    the entry when a session ends, so the ended state never reaches a browser.
+    A session that has just stopped reads as “Ended” for thirty minutes, then as “no active agent”.
+    The host keeps the ended entry that long so the state survives a reload, and drops it after.
   </p>
   <p class="note">
     Whether those turn-boundary hooks are injected at all is a daemon setting with a

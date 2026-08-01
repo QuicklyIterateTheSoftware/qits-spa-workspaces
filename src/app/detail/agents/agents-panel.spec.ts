@@ -147,13 +147,16 @@ describe('AgentsPanel', () => {
     http.expectNone('/workspaces/container/7/agents');
   });
 
-  it('names the activity, and says why a just-ended session reads as no agent', async () => {
+  it('names the activity, including the ended state and how long it lasts', async () => {
     await open();
     expect(text()).toContain('No active agent');
     host.activity.set('BUSY');
     fixture.detectChanges();
     expect(text()).toContain('Cooking…');
-    expect(text()).toContain('the ended state never reaches a browser');
+    host.activity.set('ENDED');
+    fixture.detectChanges();
+    expect(text()).toContain('Ended');
+    expect(text()).toContain('then as “no active agent”');
   });
 
   it('does not build the activity-tracking checkbox, and says where the setting lives', async () => {
