@@ -3,13 +3,42 @@
   padding-bottom: 0.5rem;
 }
 
+/*
+ * Two panes, and the tree keeps a fixed share.
+ *
+ * `minmax(0, …)` on both tracks is what stops a long line in the viewer from pushing the tree off
+ * the screen: a grid track's default minimum is its content, and one unbroken 400-character line is
+ * exactly the content a code viewer has.
+ */
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 60rem) {
+  .panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pane {
+  min-width: 0;
+}
+
 .filter {
   margin-bottom: 0.5rem;
 }
 
+.filter-row {
+  display: flex;
+  gap: 0.35rem;
+}
+
 .box {
-  width: 100%;
-  max-width: 26rem;
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 0.35rem 0.55rem;
   border: 1px solid #d1d5db;
   border-radius: 0.35rem;
@@ -23,6 +52,36 @@
   border-color: #2563eb;
   outline: 2px solid #bfdbfe;
   outline-offset: 0;
+}
+
+.advanced {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.35rem;
+  background: #ffffff;
+  color: #374151;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.advanced.on {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.badge {
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.7rem;
 }
 
 .hint {
@@ -66,6 +125,100 @@
   background: #eff6ff;
   color: #1d4ed8;
   font-weight: 600;
+}
+
+.members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.4rem;
+}
+
+.member {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-bottom-color: transparent;
+  border-radius: 0.3rem 0.3rem 0 0;
+  background: #f9fafb;
+  color: #4b5563;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.member.on {
+  border-color: #d1d5db;
+  background: #ffffff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.35rem;
+}
+
+.path {
+  overflow: hidden;
+  color: #374151;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pick {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #374151;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.pick.on {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0 0 0.4rem;
+  padding: 0;
+  list-style: none;
+}
+
+.ref {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+}
+
+.jump,
+.drop {
+  padding: 0.1rem 0.5rem;
+  border: 0;
+  background: none;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.drop {
+  padding-left: 0;
+  color: #6b7280;
 }
 
 .sr {

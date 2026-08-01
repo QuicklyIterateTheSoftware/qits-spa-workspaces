@@ -71,4 +71,33 @@ describe('FilesApi', () => {
 
     expect((await answer).generation).toBe('gen-1');
   });
+
+  it('reads one file by a required path, which is not how /files works', async () => {
+    const answer = api.content(7, 'service/target/build.log');
+    http
+      .expectOne(
+        (candidate) =>
+          candidate.url === '/workspaces/container/7/files/content' &&
+          candidate.params.get('path') === 'service/target/build.log',
+      )
+      .flush({ path: 'service/target/build.log', binary: false, content: 'a\nb\n' });
+
+    expect((await answer).content).toBe('a\nb\n');
+  });
+
+  /**
+   * The trap the contract names in as many words: the 2 MB cap **soft-degrades** to the binary flag
+   * rather than answering 413, so the two are indistinguishable from the body. A client that read
+   * this shape as "binary" would tell a user their 3 MB log is a picture.
+   */
+  it('gets the same shape for a binary file and for one over the cap', async () => {
+    const answer = api.content(7, 'dist/app.wasm');
+    http
+      .expectOne((candidate) => candidate.params.get('path') === 'dist/app.wasm')
+      .flush({ path: 'dist/app.wasm', binary: true });
+
+    const content = await answer;
+    expect(content.binary).toBe(true);
+    expect(content.content).toBeUndefined();
+  });
 });

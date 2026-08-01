@@ -8,13 +8,30 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import type { DetectionDto, FileListingDto } from '../../api/files-api';
 import { FilesApi } from '../../api/files-api';
 import { WorkspaceEvents } from '../../api/workspace-events';
 import { Async } from '../../ui/async';
 import { Empty } from '../../ui/empty';
 import { IDLE, LOADING, failed, ready, type Loadable } from '../../ui/loadable';
+import { PickedContext, referenceLabel, type CodeReference } from '../chat/picked-context';
+import { FileNavigation, closestMatch, formatRange, parseRange } from './file-navigation';
 import { FileTree } from './file-tree';
+import { FileViewer, type LineRange, type PickedRange } from './file-viewer';
+import { FilterDialog, type GeneratedSet } from './filter-dialog';
+import {
+  compileAll,
+  frameworkWhitelist,
+  hideSet,
+  previewOf,
+  type CompiledRule,
+  type FilterLayers,
+  type FilterRule,
+} from './filter-rules';
+import { IGNORE_BASENAMES, ignoreLayer, ignoreSources } from './ignore-list';
+import { buildGroups, reachableTests, tabLabel, type FileGroup } from './test-links';
 import {
   EMPTY_NODE,
   applyDetection,
@@ -36,21 +53,27 @@ export interface FrameworkToggle {
 }
 
 /**
- * The working-tree browser's left pane: the tree, its filter, and the two footers.
+ * The working-tree browser: a tree on the left, a read-only viewer on the right, and the filters
+ * that decide what is in the tree.
  *
  * ## What it loads
  *
- * **On first open this panel reads `2 + D`**, where `D` is the number of lazy directories the user
- * opens:
+ * **On first open this panel reads `2`, and then `D + F + I` as you use it:**
  *
  * 1. `GET /files` — the *whole* eager tree in one answer, at full depth, plus every wholly-ignored
  *    directory as a stub. The tree is not fetched a level at a time; only the ignored parts are.
- * 2. `GET /detection` — the frameworks the footer toggles and the token that gates them.
- * 3. `GET /files?path=…` — once per lazy directory opened, cached per directory, so re-expanding one
- *    is free for the rest of the generation.
+ * 2. `GET /detection` — the frameworks the footer toggles, the source-to-test graph the viewer's tab
+ *    strip is built from, and the token that gates both.
+ * 3. `D` — `GET /files?path=…` once per lazy directory opened, cached per directory, so re-expanding
+ *    one is free for the rest of the generation.
+ * 4. `F` — `GET /files/content?path=…` **once per file opened**, and once more each time a `files`
+ *    hint lands while this tab is showing. The viewer does not cache: a tree an agent is rewriting
+ *    has no business showing yesterday's bytes.
+ * 5. `I` — one `GET /files/content` per ignore file, the first time an ignore-list filter is turned
+ *    on, cached for the generation. Turning it off and on again is free.
  *
- * The two constants go out together rather than in sequence: they are independent reads of one tree,
- * and the generation token exists precisely so they do not have to be ordered.
+ * Nothing else costs a request. The test/code strip, the framework whitelists, the highlights and
+ * the dialog's live preview are all computed from what is already in hand.
  *
  * **It does not poll and it does not refetch while hidden.** A `files` hint arriving on another tab
  * is recorded and spent as one catch-up read when this tab is next shown — the panel stays mounted
@@ -62,36 +85,50 @@ export interface FrameworkToggle {
  * This is the decision most easily flattened by accident, so it is stated twice — here and in
  * `tree-model.ts`:
  *
- * - **A name search opens the tree fully.** It is a search; a match four directories down is the
- *   answer, and leaving it behind a closed folder makes the box useless.
+ * - **A name search, or a manual filter rule, opens the tree fully.** It is a search; a match four
+ *   directories down is the answer, and leaving it behind a closed folder makes the box useless.
  * - **A framework toggle opens to a framework-sensible depth.** It is browsing; it seeds the
  *   expansion at the framework's root and follows the unambiguous run beneath it, then stops. Opening
  *   everything would be jarring and is not what "show me the Angular app" asks for.
  *
- * The difference is mechanical, not only visual: the search's expansion is an **override that ends
- * with the search**, and the framework's is a **seed written into the expansion set**, which survives
- * the toggle being turned off — because by then the user has been browsing there.
+ * An **ignore list** is neither: it takes noise out of a tree you were already looking at, so it
+ * changes what is shown and never how far it opens.
  *
- * A consequence worth naming: while a search is on, a directory row cannot be collapsed. The
- * alternative is a second set recording collapses that only exist during a search, to serve a gesture
- * that contradicts what the search was asked to do.
+ * ## Rule precedence, which is fixed
  *
- * ## Out of scope here, on purpose
+ * **framework → ignore-list → manual**, one ordered list, last match wins. A framework restriction
+ * sets a default-hidden stance and whitelists its members; the ignore lists and the reachable-test
+ * hide subtract; the manual rules go last, **so a manual `show` can always resurrect a file
+ * something else hid.** See `filter-rules.ts`, which is where the order is written down once.
  *
- * The viewer, the advanced filter dialog, the dynamic filters and line picking all land with the
- * viewer workstream. This panel selects a file and says so; it does not draw a right-hand pane, and
- * an empty half-built one would be worse than none.
+ * ## The two entry points
+ *
+ * Both are URL parameters, read by an `effect` and never by a click, which is what makes a deep link,
+ * the back button and a press behave identically:
+ *
+ * - `?path=…&lines=12-20` — **open at an exact range.** The path is taken at its word and is not
+ *   looked for in the tree, because `/files/content` consults git for nothing: a log file that is not
+ *   in the listing at all opens exactly as well as a tracked one, and that is the case this exists
+ *   for.
+ * - `?near=…` — **open the closest match to a possibly stale path.** It seeds the name filter with
+ *   that path *exactly as if the user had typed it*, so the tree narrows and expands and the user can
+ *   see **why**, and then selects the closest match among what survived. No plausible match leaves
+ *   the seeded filter standing and selects nothing.
  */
 @Component({
   selector: 'app-files-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Async, Empty, FileTree],
+  imports: [Async, Empty, FileTree, FileViewer, FilterDialog],
   templateUrl: './files-panel.html',
   styleUrl: './files-panel.css',
 })
 export class FilesPanel {
   private readonly filesApi = inject(FilesApi);
   private readonly events = inject(WorkspaceEvents);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly nav = inject(FileNavigation);
+  protected readonly picked = inject(PickedContext);
 
   /** Which workspace's container to read. The row id, which is what the proxy addresses. */
   readonly workspaceRowId = input.required<number>();
@@ -106,8 +143,24 @@ export class FilesPanel {
    */
   readonly visible = input(false);
 
-  /** A file was chosen. The viewer reads this when it lands; for now the tree draws the highlight. */
-  readonly selectedPath = signal<string | null>(null);
+  private readonly query$ = toSignal(this.route.queryParamMap, {
+    initialValue: convertToParamMap({}),
+  });
+
+  /**
+   * The open file, straight off the URL.
+   *
+   * It is the URL rather than a local signal because opening a file costs a request — the house rule
+   * is that expensive state is addressable state — and because it is what makes the two entry points
+   * ordinary rather than special: an "open in source" from the Services tab is the same navigation a
+   * tree click makes.
+   */
+  readonly selectedPath = computed(() => this.query$().get('path'));
+
+  /** The deep link's range: painted and scrolled to, and distinct from the picked ranges. */
+  protected readonly anchor = computed<LineRange | null>(() =>
+    parseRange(this.query$().get('lines')),
+  );
 
   protected readonly listing = signal<Loadable<FileListingDto>>(IDLE);
 
@@ -122,11 +175,32 @@ export class FilesPanel {
   /** The newest detection that matched the tree on screen. Held across a mismatch, never blanked. */
   private readonly held = signal<DetectionDto | null>(null);
 
-  /** The filter box. */
+  /** The filter box. Free — it costs no request — so it is a local signal and not a URL parameter. */
   readonly query = signal('');
 
   /** Which framework *kinds* are toggled on. Several compose as a union. */
   readonly activeFrameworks = signal<ReadonlySet<string>>(new Set<string>());
+
+  /** The advanced dialog's ordered rules. */
+  readonly rules = signal<readonly FilterRule[]>([]);
+
+  /** Which ignore-file basenames are being applied. */
+  readonly activeIgnores = signal<ReadonlySet<string>>(new Set<string>());
+
+  /** Ignore files already read, keyed by path. Dropped with the generation, like the directory cache. */
+  private readonly ignoreText = signal<ReadonlyMap<string, string>>(new Map());
+
+  protected readonly dialogOpen = signal(false);
+
+  /**
+   * Whether pick mode is armed.
+   *
+   * **Sticky across picks**, unlike the web view's one-shot element picker: picking three ranges out
+   * of one file is the normal case, and re-arming between them would be three extra clicks in the
+   * middle of reading. It disarms on a file change, because the mode was about *this* file and a
+   * still-armed gutter in the next one turns a stray click into a reference nobody asked for.
+   */
+  readonly picking = signal(false);
 
   private readonly expanded = signal<ReadonlySet<string>>(new Set<string>());
 
@@ -136,6 +210,8 @@ export class FilesPanel {
   private resetFor: number | null = null;
   private seenHint = -1;
   private missedHint = false;
+  private readingIgnores = new Set<string>();
+  private consumedNear: string | null = null;
 
   constructor() {
     // Driven off the id and the hint, gated on visibility — never off a click, so a deep link and a
@@ -159,6 +235,30 @@ export class FilesPanel {
         }
       });
     });
+
+    // The ignore files, read when a list is switched on and never before. The tree paths are a
+    // dependency because a file that appears later can be a `.gitignore` too.
+    effect(() => {
+      const workspaceRowId = this.workspaceRowId();
+      const active = this.activeIgnores();
+      const paths = this.allPaths();
+      untracked(() => this.readIgnoreFiles(workspaceRowId, active, paths));
+    });
+
+    // The closest-match entry point. It is consumed once and the parameter is cleared, so the URL
+    // settles on the file that was opened rather than on the guess it came from — and so a later
+    // jump to the same stale path is a fresh request rather than a no-op.
+    effect(() => {
+      const near = this.query$().get('near');
+      const paths = this.allPaths();
+      untracked(() => this.resolveNear(near, paths));
+    });
+
+    // Pick mode was about the file it was armed in.
+    effect(() => {
+      this.selectedPath();
+      untracked(() => this.picking.set(false));
+    });
   }
 
   // ---- what is on screen -------------------------------------------------------------------
@@ -174,13 +274,22 @@ export class FilesPanel {
     return state.kind === 'ready' ? buildTree(state.value, this.opened()) : EMPTY_NODE;
   });
 
+  /** Every file path the tree knows about. The input to every filter and to the closest-match search. */
+  private readonly allPaths = computed(() => filePaths(this.tree()));
+
   private readonly openedPaths = computed<ReadonlySet<string>>(() => new Set(this.opened().keys()));
+
+  /** The enabled manual rules, compiled. Also what tells {@link narrowing} a search is on. */
+  private readonly manualRules = computed(() => compileAll(this.rules()));
 
   /** Why the tree is narrowed, which decides how far it opens. */
   protected readonly narrowing = computed<readonly NarrowingKind[]>(() => {
     const kinds: NarrowingKind[] = [];
     if (this.query().trim() !== '') {
       kinds.push('name-search');
+    }
+    if (this.manualRules().length > 0) {
+      kinds.push('manual-rule');
     }
     if (this.activeFrameworks().size > 0) {
       kinds.push('framework');
@@ -228,9 +337,64 @@ export class FilesPanel {
     return union;
   });
 
+  /** The source-to-test graph, normalised so any member resolves to its owning source's group. */
+  private readonly groups = computed<ReadonlyMap<string, FileGroup>>(() =>
+    buildGroups(this.held()?.links ?? []),
+  );
+
+  /** The strip above the viewer: the Code tab, then one tab per linked test. */
+  protected readonly group = computed<FileGroup | null>(() => {
+    const path = this.selectedPath();
+    return path ? (this.groups().get(path) ?? null) : null;
+  });
+
+  /**
+   * The reachable-test hide, or nothing while the name box has text in it.
+   *
+   * A test one click from its source is a second row saying the same thing, and in a Maven or an
+   * Angular layout that is half the tree. But a *search* is the user asking where something is, and
+   * answering "not here" about a file that exists would be the tree lying — so the hide lifts the
+   * moment the box is used.
+   */
+  private readonly hiddenTests = computed<readonly CompiledRule[]>(() => {
+    if (this.query().trim() !== '') {
+      return [];
+    }
+    const tests = reachableTests(this.held()?.links ?? []);
+    return tests.size === 0 ? [] : [hideSet(tests, 'hide · tests reachable from their source')];
+  });
+
+  /** The ignore-file rules, in the shallow-to-deep order that gives the nearest file the last word. */
+  private readonly ignoreRules = computed<readonly CompiledRule[]>(() => {
+    const rules: CompiledRule[] = [];
+    for (const name of this.activeIgnores()) {
+      rules.push(...ignoreLayer(ignoreSources(this.allPaths(), name), this.ignoreText()));
+    }
+    return rules;
+  });
+
+  /** The three layers, in the one order they are ever evaluated in. Public because it is the assertion. */
+  readonly layers = computed<FilterLayers>(() => {
+    const members = this.memberSet();
+    const framework: CompiledRule[] = [];
+    if (members !== null) {
+      for (const membership of this.held()?.frameworks ?? []) {
+        if (this.activeFrameworks().has(membership.frameworkId)) {
+          framework.push(frameworkWhitelist(new Set(membership.memberPaths), membership.label));
+        }
+      }
+    }
+    return {
+      defaultHidden: members !== null,
+      framework,
+      ignoreList: [...this.ignoreRules(), ...this.hiddenTests()],
+      manual: this.manualRules(),
+    };
+  });
+
   /** The file paths that survive the narrowing, or null when nothing narrows. */
   private readonly matched = computed(() =>
-    visiblePaths(filePaths(this.tree()), this.query(), this.memberSet()),
+    visiblePaths(this.allPaths(), this.query(), this.layers()),
   );
 
   protected readonly rows = computed<readonly TreeRow[]>(() =>
@@ -241,6 +405,43 @@ export class FilesPanel {
       opened: this.openedPaths(),
     }),
   );
+
+  /** What the dialog prints: the truth about the tree, capped at 500 with an honest count. */
+  protected readonly preview = computed(() =>
+    previewOf(this.allPaths(), this.layers(), this.query()),
+  );
+
+  protected readonly frameworkSets = computed<readonly GeneratedSet[]>(() =>
+    (this.held()?.frameworks ?? []).map((membership) => ({
+      id: membership.frameworkId,
+      name: membership.label,
+      on: this.activeFrameworks().has(membership.frameworkId),
+      note: `${membership.memberPaths.length} paths under ${membership.root || 'the root'}`,
+      rules: [`show · whitelist of ${membership.memberPaths.length} resolved member paths`],
+    })),
+  );
+
+  protected readonly ignoreSets = computed<readonly GeneratedSet[]>(() =>
+    IGNORE_BASENAMES.map((name) => {
+      const sources = ignoreSources(this.allPaths(), name);
+      const on = this.activeIgnores().has(name);
+      return {
+        id: name,
+        name,
+        on,
+        note: `${sources.length} ${sources.length === 1 ? 'file' : 'files'} in the tree`,
+        rules: on
+          ? ignoreLayer(sources, this.ignoreText()).map((rule) => `${rule.mode} · ${rule.label}`)
+          : [],
+      };
+    }).filter((set) => set.note !== '0 files in the tree' || set.on),
+  );
+
+  /** The ranges picked in the file that is open — the chips, and the paint. */
+  protected readonly picksHere = computed<readonly CodeReference[]>(() => {
+    const path = this.selectedPath();
+    return path ? this.picked.references().filter((reference) => reference.path === path) : [];
+  });
 
   /**
    * How many stubs the filter could not look inside.
@@ -267,11 +468,19 @@ export class FilesPanel {
       return false;
     }
     const matched = this.matched();
-    return matched === null ? filePaths(this.tree()).length === 0 : matched.size === 0;
+    return matched === null ? this.allPaths().length === 0 : matched.size === 0;
   });
 
   protected isFrameworkOn(frameworkId: string): boolean {
     return this.activeFrameworks().has(frameworkId);
+  }
+
+  protected label(reference: CodeReference): string {
+    return referenceLabel(reference);
+  }
+
+  protected tabLabelOf(path: string): string {
+    return tabLabel(path);
   }
 
   // ---- what the panel does -----------------------------------------------------------------
@@ -280,8 +489,9 @@ export class FilesPanel {
     this.query.set(value);
   }
 
+  /** A file was chosen. It goes in the URL, which is what then opens it. */
   protected onOpenFile(path: string): void {
-    this.selectedPath.set(path);
+    this.nav.openAt(path);
   }
 
   /**
@@ -346,6 +556,52 @@ export class FilesPanel {
     this.expanded.set(seeded);
   }
 
+  toggleIgnore(name: string): void {
+    this.activeIgnores.update((active) => {
+      const next = new Set(active);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  }
+
+  protected onRules(rules: readonly FilterRule[]): void {
+    this.rules.set(rules);
+  }
+
+  protected togglePicking(): void {
+    this.picking.update((armed) => !armed);
+  }
+
+  /** A range was picked. It becomes a code reference, which is what the prompt draft carries. */
+  protected onPick(range: PickedRange): void {
+    const path = this.selectedPath();
+    if (!path) {
+      return;
+    }
+    this.picked.addReference({
+      path,
+      startLine: range.startLine,
+      endLine: range.endLine,
+      excerpt: range.excerpt,
+    });
+  }
+
+  /** Jump the anchor to one picked range — the chip is a link back to what it stands for. */
+  protected showReference(reference: CodeReference): void {
+    this.nav.openAt(reference.path, {
+      startLine: reference.startLine,
+      endLine: reference.endLine,
+    });
+  }
+
+  protected rangeOf(reference: CodeReference): string {
+    return formatRange(reference);
+  }
+
   /** Re-read the tree on demand. The retry beside a failure, and nothing else calls it. */
   protected reload(): void {
     void this.load(this.workspaceRowId());
@@ -369,7 +625,8 @@ export class FilesPanel {
       this.expanded.set(new Set());
       this.held.set(null);
       this.incoming.set(null);
-      this.selectedPath.set(null);
+      this.ignoreText.set(new Map());
+      this.readingIgnores.clear();
     }
     if (!visible) {
       return;
@@ -402,9 +659,12 @@ export class FilesPanel {
     try {
       const listing = await this.filesApi.files(workspaceRowId);
       // The per-directory cache describes one generation. While the token holds, re-expanding an
-      // opened directory stays free; when it moves, every cached level may be stale and is dropped.
+      // opened directory stays free; when it moves, every cached level may be stale and is dropped —
+      // and so are the ignore files, whose text is a fact about the same tree.
       if (this.generationOnHand() !== listing.generation) {
         this.opened.set(new Map());
+        this.ignoreText.set(new Map());
+        this.readingIgnores.clear();
       }
       this.listing.set(ready(listing));
     } catch (error) {
@@ -435,5 +695,65 @@ export class FilesPanel {
         return next;
       });
     }
+  }
+
+  /**
+   * Read the ignore files an active list needs, once each.
+   *
+   * A file that fails to read contributes nothing and is not retried: the filter is an aid, and a
+   * missing `.gitignore` in one subdirectory should cost that directory's rules rather than the
+   * whole feature. The in-flight set is what stops the effect re-issuing a read that has not
+   * answered yet.
+   */
+  private readIgnoreFiles(
+    workspaceRowId: number,
+    active: ReadonlySet<string>,
+    paths: readonly string[],
+  ): void {
+    if (workspaceRowId <= 0) {
+      return;
+    }
+    for (const name of active) {
+      for (const source of ignoreSources(paths, name)) {
+        if (this.ignoreText().has(source.path) || this.readingIgnores.has(source.path)) {
+          continue;
+        }
+        this.readingIgnores.add(source.path);
+        void this.filesApi
+          .content(workspaceRowId, source.path)
+          .then((answer) => {
+            if (!answer.binary && answer.content !== undefined) {
+              this.ignoreText.update((text) => new Map(text).set(source.path, answer.content!));
+            }
+          })
+          .catch(() => undefined)
+          .finally(() => this.readingIgnores.delete(source.path));
+      }
+    }
+  }
+
+  /**
+   * The closest-match entry point.
+   *
+   * It waits for the tree, because a match cannot be found in a listing that has not arrived. Once
+   * it has one it seeds the box and clears the parameter — with `replaceUrl`, because the guess was
+   * never a place worth going back to.
+   */
+  private resolveNear(near: string | null, paths: readonly string[]): void {
+    if (!near || near === this.consumedNear || paths.length === 0) {
+      return;
+    }
+    this.consumedNear = near;
+    this.query.set(near);
+    const match = closestMatch(
+      paths.filter((path) => this.matched()?.has(path) ?? true),
+      near,
+    );
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { near: null, path: match ?? null, lines: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 }

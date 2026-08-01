@@ -1,4 +1,8 @@
 import type { DetectionDto, FileListingDto } from '../../api/files-api';
+import type { FilterLayers } from './filter-rules';
+import { isShown, matchesQuery, narrows } from './filter-rules';
+
+export { matchesQuery } from './filter-rules';
 
 /**
  * What a node is.
@@ -41,10 +45,11 @@ export const EMPTY_NODE: TreeNode = {
  *   framework-sensible depth; opening everything would be jarring, and nobody toggled "Angular"
  *   to be shown four hundred rows.
  *
- * `manual-rule` has no producer in this workstream — the advanced filter dialog lands with the
- * viewer — and it is declared here anyway, because the rule is *"a search opens fully"* rather than
- * *"the name box opens fully"*, and a later workstream adding rules should find the policy already
- * written rather than have to notice it.
+ * `manual-rule` was declared here before it had a producer, because the rule is *"a search opens
+ * fully"* rather than *"the name box opens fully"*. The advanced filter dialog is that producer: a
+ * hand-written rule is somebody looking for something, so it opens the tree the same way the box
+ * does. An **ignore list** is not a producer — it subtracts noise from a tree you were already
+ * browsing — and neither is the reachable-test hide.
  */
 export type NarrowingKind = 'name-search' | 'manual-rule' | 'framework';
 
@@ -272,53 +277,29 @@ export function filePaths(root: TreeNode): readonly string[] {
 }
 
 /**
- * Whether one path answers the filter box.
- *
- * Three forms, in the order they are tested:
- *
- * - **A query with a `/` matches the whole path**, not the basename. That is not a nicety: the
- *   viewer's "open the closest match to a possibly-stale path" entry point seeds this box with a
- *   path exactly as if the user had typed it, so the user can see *why* the tree is narrowed.
- * - **A query with `*` or `?` is a glob**, anchored at both ends, because `*.ts` meaning "contains
- *   .ts anywhere" would make the wildcard decorative. `*` crosses `/` here — a filter box is not a
- *   shell, and `src/*.spec.ts` is far more likely to mean "under src" than "directly in src".
- * - **Anything else is fuzzy**: a case-insensitive subsequence, so `wdp` finds
- *   `workspace-detail-page.ts`.
- */
-export function matchesQuery(path: string, query: string): boolean {
-  const trimmed = query.trim();
-  if (trimmed === '') {
-    return true;
-  }
-  const subject = trimmed.includes('/') ? path : basename(path);
-  if (trimmed.includes('*') || trimmed.includes('?')) {
-    return globOf(trimmed).test(subject);
-  }
-  return isSubsequence(trimmed.toLowerCase(), subject.toLowerCase());
-}
-
-/**
  * The file paths that survive the narrowing, or null when nothing narrows.
  *
  * Null is not the empty set and the difference is the whole point: "nothing is filtered" renders the
  * tree, and "nothing matched" renders *"No files match."*.
  *
- * A framework restriction is a **whitelist over a server-resolved membership set**, not a path
- * prefix — a framework's files are not always all under its root, and guessing from the root would
- * quietly include a sibling project nested inside it.
+ * Two things narrow, and they are not the same kind of thing. The **name box** is a search and is
+ * applied as a plain conjunction — it is the user asking a question, not stating a policy. The
+ * **layers** are the policy: framework, then ignore-list, then manual, evaluated last-match-wins, so
+ * a manual `show` can resurrect what a framework or an ignore file hid. Folding the box into the
+ * layers would let a rule hide something the user had just typed the name of.
  */
 export function visiblePaths(
   paths: readonly string[],
   query: string,
-  frameworkMembers: ReadonlySet<string> | null,
+  layers: FilterLayers,
 ): ReadonlySet<string> | null {
   const searching = query.trim() !== '';
-  if (!searching && frameworkMembers === null) {
+  if (!searching && !narrows(layers)) {
     return null;
   }
   const visible = new Set<string>();
   for (const path of paths) {
-    if (frameworkMembers !== null && !frameworkMembers.has(path)) {
+    if (!isShown(path, layers)) {
       continue;
     }
     if (searching && !matchesQuery(path, query)) {
@@ -519,29 +500,4 @@ function joinPath(parent: string, name: string): string {
 
 function depthOf(path: string): number {
   return path.split('/').filter((segment) => segment !== '').length;
-}
-
-function basename(path: string): string {
-  const at = path.lastIndexOf('/');
-  return at < 0 ? path : path.slice(at + 1);
-}
-
-function globOf(query: string): RegExp {
-  const pattern = query
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/[*?]/g, (token) => (token === '*' ? '[\\s\\S]*' : '[\\s\\S]'));
-  return new RegExp(`^${pattern}$`, 'i');
-}
-
-function isSubsequence(needle: string, haystack: string): boolean {
-  let at = 0;
-  for (const character of haystack) {
-    if (character === needle[at]) {
-      at += 1;
-      if (at === needle.length) {
-        return true;
-      }
-    }
-  }
-  return at === needle.length;
 }

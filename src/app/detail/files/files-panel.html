@@ -1,62 +1,167 @@
-<div class="filter">
-  <label class="sr" for="file-filter">Filter files by name</label>
-  <input
-    id="file-filter"
-    class="box"
-    type="search"
-    autocomplete="off"
-    spellcheck="false"
-    placeholder="Filter by name — fuzzy, or a glob like *.ts"
-    [value]="query()"
-    (input)="onQuery($any($event.target).value)"
-  />
-  @if (fullyExpanded()) {
-    <p class="hint" role="status">Searching — the tree is open to its full depth.</p>
-  }
-</div>
-
-<app-async
-  [state]="listing()"
-  loadingLabel="Loading files"
-  errorLabel="Could not load the working tree"
-  (retry)="reload()"
-/>
-
-@if (noMatch()) {
-  <app-empty message="No files match." />
-}
-
-@if (rows().length > 0) {
-  <app-file-tree
-    [rows]="rows()"
-    [selected]="selectedPath()"
-    [loading]="pending()"
-    label="Working tree"
-    (openFile)="onOpenFile($event)"
-    (toggleDir)="onToggleDir($event)"
+@if (dialogOpen()) {
+  <app-filter-dialog
+    [rules]="rules()"
+    [frameworkSets]="frameworkSets()"
+    [ignoreSets]="ignoreSets()"
+    [preview]="preview()"
+    (rulesChange)="onRules($event)"
+    (toggleFramework)="toggleFramework($event)"
+    (toggleIgnore)="toggleIgnore($event)"
+    (closed)="dialogOpen.set(false)"
   />
 }
 
-@if (unsearched() > 0) {
-  <p class="unsearched" role="status">
-    {{ unsearched() }} collapsed {{ unsearched() === 1 ? 'directory' : 'directories' }} not searched
-    — open to include.
-  </p>
-}
+<div class="panes">
+  <section class="pane tree-pane" aria-label="Working tree">
+    <div class="filter">
+      <label class="sr" for="file-filter">Filter files by name</label>
+      <div class="filter-row">
+        <input
+          id="file-filter"
+          class="box"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Filter by name — fuzzy, or a glob like *.ts"
+          [value]="query()"
+          (input)="onQuery($any($event.target).value)"
+        />
+        <button
+          type="button"
+          class="advanced"
+          [class.on]="rules().length > 0 || activeIgnores().size > 0"
+          [attr.aria-expanded]="dialogOpen()"
+          (click)="dialogOpen.set(!dialogOpen())"
+        >
+          Filters
+          @if (rules().length > 0) {
+            <span class="badge">{{ rules().length }}</span>
+          }
+        </button>
+      </div>
+      @if (fullyExpanded()) {
+        <p class="hint" role="status">Searching — the tree is open to its full depth.</p>
+      }
+    </div>
 
-@if (frameworkToggles().length > 0) {
-  <footer class="frameworks" aria-label="Detected frameworks">
-    @for (framework of frameworkToggles(); track framework.frameworkId) {
-      <button
-        type="button"
-        class="chip"
-        [class.on]="isFrameworkOn(framework.frameworkId)"
-        [attr.aria-pressed]="isFrameworkOn(framework.frameworkId)"
-        [attr.data-framework]="framework.frameworkId"
-        (click)="toggleFramework(framework.frameworkId)"
-      >
-        {{ framework.label }}
-      </button>
+    <app-async
+      [state]="listing()"
+      loadingLabel="Loading files"
+      errorLabel="Could not load the working tree"
+      (retry)="reload()"
+    />
+
+    @if (noMatch()) {
+      <app-empty message="No files match." />
     }
-  </footer>
-}
+
+    @if (rows().length > 0) {
+      <app-file-tree
+        [rows]="rows()"
+        [selected]="selectedPath()"
+        [loading]="pending()"
+        label="Working tree"
+        (openFile)="onOpenFile($event)"
+        (toggleDir)="onToggleDir($event)"
+      />
+    }
+
+    @if (unsearched() > 0) {
+      <p class="unsearched" role="status">
+        {{ unsearched() }} collapsed {{ unsearched() === 1 ? 'directory' : 'directories' }} not
+        searched — open to include.
+      </p>
+    }
+
+    @if (frameworkToggles().length > 0) {
+      <footer class="frameworks" aria-label="Detected frameworks">
+        @for (framework of frameworkToggles(); track framework.frameworkId) {
+          <button
+            type="button"
+            class="chip"
+            [class.on]="isFrameworkOn(framework.frameworkId)"
+            [attr.aria-pressed]="isFrameworkOn(framework.frameworkId)"
+            [attr.data-framework]="framework.frameworkId"
+            (click)="toggleFramework(framework.frameworkId)"
+          >
+            {{ framework.label }}
+          </button>
+        }
+      </footer>
+    }
+  </section>
+
+  <section class="pane view-pane" aria-label="File viewer">
+    @if (selectedPath(); as path) {
+      @if (group(); as strip) {
+        <nav class="members" aria-label="Source and its tests">
+          <button
+            type="button"
+            class="member"
+            [class.on]="path === strip.source"
+            [attr.title]="strip.source"
+            [attr.data-member]="strip.source"
+            (click)="onOpenFile(strip.source)"
+          >
+            Code
+          </button>
+          @for (test of strip.tests; track test) {
+            <button
+              type="button"
+              class="member"
+              [class.on]="path === test"
+              [attr.title]="test"
+              [attr.data-member]="test"
+              (click)="onOpenFile(test)"
+            >
+              {{ tabLabelOf(test) }}
+            </button>
+          }
+        </nav>
+      }
+
+      <header class="open">
+        <code class="path">{{ path }}</code>
+        <button
+          type="button"
+          class="pick"
+          [class.on]="picking()"
+          [attr.aria-pressed]="picking()"
+          (click)="togglePicking()"
+        >
+          {{ picking() ? 'Picking — select line ranges' : 'Pick lines' }}
+        </button>
+      </header>
+
+      @if (picksHere().length > 0) {
+        <ul class="chips" aria-label="Picked line ranges">
+          @for (reference of picksHere(); track label(reference)) {
+            <li class="ref">
+              <button type="button" class="jump" (click)="showReference(reference)">
+                {{ rangeOf(reference) }}
+              </button>
+              <button
+                type="button"
+                class="drop"
+                [attr.aria-label]="'Remove ' + label(reference)"
+                (click)="picked.removeReference(label(reference))"
+              >
+                ✕
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    }
+
+    <app-file-viewer
+      [workspaceRowId]="workspaceRowId()"
+      [path]="selectedPath()"
+      [visible]="visible()"
+      [picking]="picking()"
+      [anchor]="anchor()"
+      [picks]="picksHere()"
+      (pick)="onPick($event)"
+    />
+  </section>
+</div>

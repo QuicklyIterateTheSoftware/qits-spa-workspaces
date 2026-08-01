@@ -1,4 +1,5 @@
 import type { DetectionDto, FileListingDto } from '../../api/files-api';
+import { NO_LAYERS, frameworkWhitelist, type FilterLayers } from './filter-rules';
 import {
   OPEN_NOTHING,
   applyDetection,
@@ -13,6 +14,15 @@ import {
   type TreeRow,
   type TreeView,
 } from './tree-model';
+
+/** The layers a single framework toggle produces: default-hidden, plus that framework's whitelist. */
+function angularOnly(): FilterLayers {
+  return {
+    ...NO_LAYERS,
+    defaultHidden: true,
+    framework: [frameworkWhitelist(new Set(ANGULAR_MEMBERS), 'Angular')],
+  };
+}
 
 /**
  * A repository with the two shapes that make the tree interesting: a Maven service whose sources sit
@@ -218,13 +228,13 @@ describe('the working tree model', () => {
     it('tells "nothing is filtered" from "nothing matched"', () => {
       const paths = filePaths(buildTree(ROOT));
 
-      expect(visiblePaths(paths, '', null)).toBeNull();
-      expect(visiblePaths(paths, 'zzzz', null)?.size).toBe(0);
+      expect(visiblePaths(paths, '', NO_LAYERS)).toBeNull();
+      expect(visiblePaths(paths, 'zzzz', NO_LAYERS)?.size).toBe(0);
     });
 
     it('composes a framework whitelist with the name query', () => {
       const paths = filePaths(buildTree(ROOT));
-      const visible = visiblePaths(paths, '*.ts', new Set(ANGULAR_MEMBERS));
+      const visible = visiblePaths(paths, '*.ts', angularOnly());
 
       expect([...visible!].sort()).toEqual([
         'webui/src/app/app.ts',
@@ -266,7 +276,7 @@ describe('the working tree model', () => {
         tree,
         view({
           fullyExpanded: true,
-          visible: visiblePaths(filePaths(tree), 'AppTest', null),
+          visible: visiblePaths(filePaths(tree), 'AppTest', NO_LAYERS),
         }),
       );
 
@@ -322,7 +332,7 @@ describe('the working tree model', () => {
       const tree = buildTree(ROOT);
       const rows = flatten(
         tree,
-        view({ fullyExpanded: true, visible: visiblePaths(filePaths(tree), 'zzzz', null) }),
+        view({ fullyExpanded: true, visible: visiblePaths(filePaths(tree), 'zzzz', NO_LAYERS) }),
       );
 
       expect(rowFor(rows, 'node_modules')).toBeDefined();
