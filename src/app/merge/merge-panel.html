@@ -1,17 +1,24 @@
 @switch (state().kind) {
   @case ('closed') {
     <div class="closed">
-      <qits-button variant="primary" size="sm" (pressed)="open()">Integrate…</qits-button>
-      <span class="target"
-        >merges into <code>{{ targetBranch() }}</code></span
-      >
+      <qits-button variant="primary" size="sm" (pressed)="open()">{{ actionLabel() }}…</qits-button>
+      @if (isRelease()) {
+        <span class="target"
+          >merges into <code>{{ mainBranch() }}</code> and stamps a release version</span
+        >
+      } @else {
+        <span class="target"
+          >merges into <code>{{ target() }}</code
+          >, no release</span
+        >
+      }
     </div>
   }
 
   @case ('editing') {
     <form class="editor" (submit)="$event.preventDefault(); submit()">
       <label [attr.for]="'summary-' + workspace().id">
-        What changed — this becomes the release commit's subject
+        What changed — this becomes the merge commit's subject
       </label>
       <input
         class="summary"
@@ -31,7 +38,7 @@
       </p>
       <div class="editor-actions">
         <qits-button type="submit" variant="primary" size="sm" [disabled]="!submittable()">
-          Integrate into {{ targetBranch() }}
+          {{ actionLabel() }} into {{ target() }}
         </qits-button>
         <qits-button variant="ghost" size="sm" (pressed)="close()">Cancel</qits-button>
       </div>
@@ -41,33 +48,53 @@
   @case ('working') {
     <p class="working" role="status">
       <span class="spinner" aria-hidden="true"></span>
-      Merging, stamping a version and pushing to <code>{{ targetBranch() }}</code
-      >…
+      @if (isRelease()) {
+        Merging, stamping a version and pushing to <code>{{ target() }}</code
+        >…
+      } @else {
+        Merging and pushing to <code>{{ target() }}</code
+        >…
+      }
     </p>
   }
 
   @case ('done') {
-    @if (result(); as release) {
+    @if (result(); as merge) {
       <div class="surface surface-done" role="status">
-        <h4>Released {{ release.version }}</h4>
+        @if (merge.version) {
+          <h4>Released {{ merge.version }}</h4>
+        } @else {
+          <h4>Integrated into {{ merge.targetBranch }}</h4>
+        }
         <dl>
-          <dt>Version</dt>
-          <dd>
-            <code class="version">{{ release.version }}</code>
-          </dd>
+          @if (merge.version) {
+            <dt>Version</dt>
+            <dd>
+              <code class="version">{{ merge.version }}</code>
+            </dd>
+          }
           <dt>Merge commit</dt>
           <dd>
-            <code class="sha" [title]="release.commitSha">{{ shortSha(release.commitSha) }}</code>
+            <code class="sha" [title]="merge.commitSha">{{ shortSha(merge.commitSha) }}</code>
           </dd>
           <dt>Branch</dt>
           <dd>
-            <code>{{ release.branch }}</code> → <code>{{ targetBranch() }}</code>
+            <code>{{ merge.branch }}</code> → <code>{{ merge.targetBranch }}</code>
           </dd>
         </dl>
-        <p class="note">
-          One commit carries both the merge and the version bump. The push is an ordinary push, so
-          the ordinary pipeline is building it now.
-        </p>
+        @if (merge.version) {
+          <p class="note">
+            One commit carries both the merge and the version bump. The push is an ordinary push, so
+            the ordinary pipeline is building it now.
+          </p>
+        } @else {
+          <p class="note">
+            A merge and nothing more: no version was stamped and nothing was released. The release
+            happens when <code>{{ merge.targetBranch }}</code> itself goes into
+            <code>{{ mainBranch() }}</code
+            >.
+          </p>
+        }
       </div>
     }
   }
@@ -79,9 +106,9 @@
           <div class="surface surface-conflict" role="alert">
             <h4>Merge conflict</h4>
             <p>
-              This branch does not apply to <code>{{ targetBranch() }}</code
-              >. Nothing was released and <code>{{ targetBranch() }}</code> was not touched — the
-              merge happens off to one side and only the final push moves anything.
+              This branch does not apply to <code>{{ target() }}</code
+              >. Nothing landed and <code>{{ target() }}</code> was not touched — the merge happens
+              off to one side and only the final push moves anything.
             </p>
             @if (problem.conflicts.length > 0) {
               <p class="files-label">Conflicting files</p>
@@ -95,8 +122,8 @@
             }
             <p class="said">{{ problem.message }}</p>
             <p class="advice">
-              Update the workspace from <code>{{ targetBranch() }}</code
-              >, resolve the conflict there, then integrate again.
+              Update the workspace from <code>{{ target() }}</code
+              >, resolve the conflict there, then try again.
             </p>
             <div class="surface-actions">
               <qits-button variant="secondary" size="sm" (pressed)="edit()">
@@ -110,11 +137,11 @@
         @case ('moved') {
           <div class="surface surface-moved" role="alert">
             <h4>
-              <code>{{ targetBranch() }}</code> moved
+              <code>{{ target() }}</code> moved
             </h4>
             <p>
-              Another integrate landed while this one was running, so the push was rejected. Nothing
-              was released here and no version was spent. Integrating again is the whole fix.
+              Another merge landed while this one was running, so the push was rejected.
+              {{ nothingLanded() }} Pressing again is the whole fix.
             </p>
             <p class="said">{{ problem.message }}</p>
             <div class="surface-actions">
@@ -130,9 +157,9 @@
           <div class="surface surface-already" role="status">
             <h4>Already integrated</h4>
             <p>
-              This branch is already in <code>{{ targetBranch() }}</code
-              >, so no second release was made. That is what a lost answer looks like on a retry:
-              the work is in, and this list is simply out of date.
+              This branch is already in <code>{{ target() }}</code
+              >, so {{ nothingSecond() }} That is what a lost answer looks like on a retry: the work
+              is in, and this list is simply out of date.
             </p>
             <p class="said">{{ problem.message }}</p>
             <div class="surface-actions">
@@ -145,7 +172,7 @@
 
         @case ('refused') {
           <div class="surface surface-refused" role="alert">
-            <h4>Integrate was refused</h4>
+            <h4>{{ actionLabel() }} was refused</h4>
             <p class="said">{{ problem.message }}</p>
             <div class="surface-actions">
               <qits-button variant="secondary" size="sm" (pressed)="edit()">
@@ -161,7 +188,7 @@
             <h4>No answer from qits-workspaces</h4>
             <p>
               The request did not come back, so whether anything happened is unknown. Refresh the
-              list before integrating again — if the release did land, the retry will say so.
+              list before trying again — if the merge did land, the retry will say so.
             </p>
             <p class="said">{{ problem.message }}</p>
             <div class="surface-actions">

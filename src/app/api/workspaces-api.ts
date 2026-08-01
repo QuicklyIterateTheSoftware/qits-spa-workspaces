@@ -3,15 +3,23 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { QITS_API_BASE } from './api-base';
 import type {
-  IntegrateRequest,
   IntegrateResponse,
+  MergeRequest,
+  ReleaseResponse,
   WorkspaceDto,
   WorkspaceEntriesResponse,
 } from './dto';
 
 /**
- * The two calls this app makes against qits-workspaces: read a repository's workspaces, and
- * integrate one of them.
+ * The three calls this app makes against qits-workspaces: read a repository's workspaces, release
+ * one of them, and integrate one of them.
+ *
+ * Release and integrate are **two processes, not one call with a flag**, and this client says so
+ * with two methods against two routes. Release is the door into the default branch and stamps a
+ * version; integrate merges a workspace into its parent and stamps nothing. Their answers differ in
+ * the field that matters — a release has a version, an integrate has none — so folding them
+ * together would produce a response type whose most useful field is optional for no reason a reader
+ * could see.
  *
  * `HttpClient` on the fetch backend rather than bare `fetch()`, for two reasons that both cash out
  * elsewhere: `HttpTestingController` is the only request-mocking story Angular ships, and every
@@ -44,21 +52,43 @@ export class WorkspacesApi {
   }
 
   /**
-   * Integrate one workspace: merge its branch into the repository's default branch, stamped with a
+   * Release one workspace: merge its branch into the repository's default branch, stamped with a
    * fresh version, as one commit that is then pushed.
    *
    * **Not idempotent, by design** — each call stamps a new version from the clock, because two
-   * integrates are two releases. Retry safety comes from the flow's shape instead: a failed
-   * integrate moved no ref, and a succeeded one whose answer was lost is refused on the retry with
-   * "already integrated" rather than producing an empty second release. So this method is called
-   * once per press and never automatically re-issued; every retry on this screen is a person
-   * pressing a button again.
+   * releases are two releases. Retry safety comes from the flow's shape instead: a failed release
+   * moved no ref, and a succeeded one whose answer was lost is refused on the retry with "already
+   * integrated" rather than producing an empty second release. So this method is called once per
+   * press and never automatically re-issued; every retry on this screen is a person pressing a
+   * button again.
    *
    * Rejects with the `HttpErrorResponse`, which is what {@link
-   * ../integrate/integrate-outcome#classifyIntegrateFailure} reads to tell the three 409s apart.
+   * ../merge/merge-outcome#classifyMergeFailure} reads to tell the 409s apart.
+   */
+  async release(workspaceId: number, summary: string): Promise<ReleaseResponse> {
+    const body: MergeRequest = { summary };
+    return firstValueFrom(
+      this.http.post<ReleaseResponse>(
+        `${this.base}/workspaces/api/workspaces/${encodeURIComponent(workspaceId)}/release`,
+        body,
+      ),
+    );
+  }
+
+  /**
+   * Integrate one workspace: merge its branch into its **parent** branch and push. No version is
+   * stamped and nothing is released — a task workspace lands on its epic, and the epic is what is
+   * released later.
+   *
+   * The target is not sent, for the same reason the release target is not: the parent is the
+   * service's own fact about the workspace. A workspace whose parent *is* the default branch is
+   * refused here with a 409 pointing at {@link release} — the server guarding the one door into the
+   * default branch, rather than trusting this client's reading of the row.
+   *
+   * Rejects with the `HttpErrorResponse` exactly as {@link release} does; the 409 family is shared.
    */
   async integrate(workspaceId: number, summary: string): Promise<IntegrateResponse> {
-    const body: IntegrateRequest = { summary };
+    const body: MergeRequest = { summary };
     return firstValueFrom(
       this.http.post<IntegrateResponse>(
         `${this.base}/workspaces/api/workspaces/${encodeURIComponent(workspaceId)}/integrate`,

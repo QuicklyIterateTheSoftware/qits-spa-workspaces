@@ -9,23 +9,24 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { QitsButton } from '@qits/ui-components';
-import type { IntegrateResponse, ProjectDto, RepositoryDto, WorkspaceDto } from '../api/dto';
+import type { ProjectDto, RepositoryDto, WorkspaceDto } from '../api/dto';
 import { ProjectsApi } from '../api/projects-api';
 import { WorkspacesApi } from '../api/workspaces-api';
-import { IntegratePanel } from '../integrate/integrate-panel';
+import type { MergeResult } from '../merge/merge-outcome';
+import { MergePanel } from '../merge/merge-panel';
 import { Async } from '../ui/async';
 import { Empty } from '../ui/empty';
 import { IDLE, LOADING, failed, ready, type Loadable } from '../ui/loadable';
 import { WorkspaceRow } from './workspace-row';
 
-/** A release made on this screen: the workspace it came from, and what the service answered. */
-export interface ReleaseRecord {
+/** A merge made on this screen: the workspace it came from, and what the service answered. */
+export interface MergeRecord {
   readonly workspaceLabel: string;
-  readonly result: IntegrateResponse;
+  readonly result: MergeResult;
 }
 
 /**
- * A repository's live workspaces, and the one action that turns one of them into a release.
+ * A repository's live workspaces, and the action that sends each one home.
  *
  * **Why a repository has to be picked at all.** qits-workspaces' listing takes a mandatory
  * `repositoryId` and the service owns no repository listing of its own — it holds the id as an
@@ -34,16 +35,20 @@ export interface ReleaseRecord {
  * The choice rides in the query parameters (`/workspaces/?project=…&repository=…`) so a repository
  * a person works in every day is a bookmark, and so the back button means "the previous one".
  *
- * **Releases are recorded above the list, not in the row that made them.** A successful integrate
+ * **What landed is recorded above the list, not in the row that made it.** A successful merge
  * resolves its workspace, so the next listing does not contain it — a success surface living in
- * that row would flash and vanish, taking the version and the merge sha with it. Those two strings
- * are the entire useful output of the action, so they are lifted to the page, where they outlive
- * both the row and the reload.
+ * that row would flash and vanish, taking the version and the merge sha with it. Those strings are
+ * the entire useful output of the action, so they are lifted to the page, where they outlive both
+ * the row and the reload.
+ *
+ * **Which door a row offers is the workspace's own business.** Release and integrate are two
+ * processes, and the panel picks between them from the workspace's parent branch; the page hands it
+ * the repository's default branch and nothing more.
  */
 @Component({
   selector: 'app-workspaces-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Async, Empty, IntegratePanel, QitsButton, WorkspaceRow],
+  imports: [Async, Empty, MergePanel, QitsButton, WorkspaceRow],
   templateUrl: './workspaces-page.html',
   styleUrl: './workspaces-page.css',
 })
@@ -57,8 +62,8 @@ export class WorkspacesPage {
   protected readonly repositories = signal<Loadable<readonly RepositoryDto[]>>(IDLE);
   protected readonly workspaces = signal<Loadable<readonly WorkspaceDto[]>>(IDLE);
 
-  /** Every release made since this page was opened, newest first. */
-  protected readonly releases = signal<readonly ReleaseRecord[]>([]);
+  /** Every merge made since this page was opened, newest first. */
+  protected readonly landed = signal<readonly MergeRecord[]>([]);
 
   private loadedProjectId: string | null = null;
   private loadedRepositoryId: string | null = null;
@@ -90,9 +95,9 @@ export class WorkspacesPage {
   /**
    * The chosen repository, resolved against the listing rather than trusted from the URL.
    *
-   * This is what makes the destination branch a fact instead of an assumption: `mainBranch` comes
-   * from qits-projects, and the panel names it. Every repository in this platform says "main"
-   * today, and none of them promises to.
+   * This is what makes the release destination a fact instead of an assumption: `mainBranch` comes
+   * from qits-projects, the panel names it, and it is what tells a row whether it releases or
+   * integrates. Every repository in this platform says "main" today, and none of them promises to.
    */
   protected readonly repository = computed<RepositoryDto | null>(
     () =>
@@ -100,8 +105,8 @@ export class WorkspacesPage {
       null,
   );
 
-  /** The branch an integrate lands on. Empty until the repository is known — and then it is real. */
-  protected readonly targetBranch = computed(() => this.repository()?.mainBranch ?? '');
+  /** The branch a release lands on. Empty until the repository is known — and then it is real. */
+  protected readonly mainBranch = computed(() => this.repository()?.mainBranch ?? '');
 
   protected readonly summary = computed(() => {
     const repository = this.repository();
@@ -114,8 +119,9 @@ export class WorkspacesPage {
     }
     const count = state.value.length;
     return (
-      `${count} live ${count === 1 ? 'workspace' : 'workspaces'} in ${repository.id}, ` +
-      `each one integrable into ${repository.mainBranch}.`
+      `${count} live ${count === 1 ? 'workspace' : 'workspaces'} in ${repository.id}. ` +
+      `Work off ${repository.mainBranch} is released into it; anything else is integrated into ` +
+      `its parent branch.`
     );
   });
 
@@ -193,16 +199,16 @@ export class WorkspacesPage {
   }
 
   /**
-   * A release landed: record it, then re-read the list.
+   * A merge landed: record it, then re-read the list.
    *
    * The record comes first and deliberately does not depend on the reload succeeding. The version
    * and the merge sha exist whether or not the next request does, and losing them to a failed
    * refresh would lose the only copy the user has.
    */
-  protected onIntegrated(workspace: WorkspaceDto, result: IntegrateResponse): void {
-    this.releases.update((releases) => [
+  protected onMerged(workspace: WorkspaceDto, result: MergeResult): void {
+    this.landed.update((records) => [
       { workspaceLabel: workspace.workspaceId, result },
-      ...releases,
+      ...records,
     ]);
     this.reloadWorkspaces();
   }

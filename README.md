@@ -1,9 +1,10 @@
 # QitsSpaWorkspaces
 
-The workspaces UI: what is in flight in a repository, and the one door that turns a workspace into
-a release. Served by qits-workspaces itself at `/workspaces/` through Quinoa; it ships no image.
+The workspaces UI: what is in flight in a repository, and the two doors that send a workspace home.
+Served by qits-workspaces itself at `/workspaces/` through Quinoa; it ships no image.
 
-- **`/workspaces/`** — a repository's live workspaces, each with an **Integrate** action.
+- **`/workspaces/`** — a repository's live workspaces, each with the one action its branch calls
+  for: **Release** or **Integrate**.
 
 A repository has to be picked, and the reason is a service boundary rather than a screen someone
 wanted: qits-workspaces' listing takes a mandatory `repositoryId` and owns no repository listing of
@@ -11,38 +12,55 @@ its own, so the picker is two reads against qits-projects. The choice rides in t
 (`/workspaces/?project=…&repository=…`), so a repository you work in every day is a bookmark and the
 back button means "the previous one".
 
-## Integrating
+## Releasing and integrating
 
-Integrate merges a workspace's branch into the repository's default branch, stamps a CalVer version
-onto it, and pushes — one commit whose subject is `release(<version>): <summary>`, where the summary
-is the sentence the form asks for. **The target is not a parameter**: it is always the repository's
-`mainBranch`, which is the whole feature. The request is `POST
-/workspaces/api/workspaces/{id}/integrate` with `{summary}` and nothing else; the answer is
-`{version, commitSha, branch}`.
+**Two processes, not one action with a toggle.**
 
-The summary field previews the subject with the version left as `YYYY.MMDD.HHMMSS`, because the
-stamp comes from the server's clock and any version rendered here first would be a number appearing
-in no commit anywhere.
+| Door          | Request                                      | Lands on                      | Commit subject                   | Answer                              |
+| ------------- | -------------------------------------------- | ----------------------------- | -------------------------------- | ----------------------------------- |
+| **Release**   | `POST …/workspaces/{id}/release {summary}`   | the repository's `mainBranch` | `release(<version>): <summary>`  | `{version, commitSha, branch}`      |
+| **Integrate** | `POST …/workspaces/{id}/integrate {summary}` | the workspace's parent branch | `integrate(<branch>): <summary>` | `{commitSha, branch, targetBranch}` |
+
+Release merges, stamps a CalVer version and pushes — one commit carrying both. It is the only way
+into the default branch. Integrate is a plain merge into the parent: a `task/*` workspace lands on
+its `epic/*`, no version is stamped and nothing is published; the epic is what gets released later.
+
+**Neither request names a target.** Release always lands on `mainBranch` and integrate always lands
+on the parent, and both are facts the service already holds — so a client that could name a target
+would be describing an API that does not exist.
+
+**A row offers one door, not two.** Which one is read from the workspace's `parent`: parented on
+`mainBranch` means release, anything else means integrate. That reading is the client's and never
+the authority — an integrate aimed at the default branch is refused with a `409` naming the release
+door, so a stale list produces a clear refusal instead of a wrong merge.
+
+The summary field previews the subject it will write. A release's version is left as
+`YYYY.MMDD.HHMMSS`, because the stamp comes from the server's clock and any version rendered here
+first would be a number appearing in no commit anywhere. An integrate's scope is the source branch,
+which is already known, so that preview is exact.
 
 **The five outcomes are five surfaces, not one red box**, because each is a different thing to do
-next:
+next. Both doors share them, because both answer out of the same `409` family:
 
-| Outcome                 | What it means                                    | The way out                   |
-| ----------------------- | ------------------------------------------------ | ----------------------------- |
-| **Released**            | version, merge sha and branch                    | nothing — CI is building      |
-| **Merge conflict**      | the branch does not apply; nothing was released  | resolve, then integrate again |
-| **`main` moved**        | another integrate won the race; no version spent | press again, same summary     |
-| **Already integrated**  | the branch is in; no second release was made     | refresh the list              |
-| **Refused / no answer** | the service's own sentence, verbatim             | as it says                    |
+| Outcome                 | What it means                                                 | The way out               |
+| ----------------------- | ------------------------------------------------------------- | ------------------------- |
+| **Landed**              | merge sha, branch and target — plus the version, on a release | nothing — CI is building  |
+| **Merge conflict**      | the branch does not apply; nothing landed                     | resolve, then press again |
+| **Target moved**        | another merge won the race; no version spent                  | press again, same summary |
+| **Already integrated**  | the branch is in; nothing was done twice                      | refresh the list          |
+| **Refused / no answer** | the service's own sentence, verbatim                          | as it says                |
 
 The three middle rows all arrive as `409`. The platform's error envelope carries only `{"message"}`
-today, so `integrate-outcome.ts` reads an optional structured `reason` (and an optional `conflicts`
-file list) **first** and falls back to matching the message — and an unrecognised 409 is reported as
-a refusal in the server's words rather than guessed into one of the three.
+today, so `merge-outcome.ts` reads an optional structured `reason` (and an optional `conflicts` file
+list) **first** and falls back to matching the message — and an unrecognised 409 is reported as a
+refusal in the server's words rather than guessed into one of the three. `PUSH_REJECTED` is a
+refusal and deliberately not a lost race: the family spells that `NOT_FAST_FORWARD`, so a declared
+push rejection is the git host saying no for a reason "press it again" cannot fix.
 
-A release is recorded **above** the list, not in the row that produced it: integrating resolves the
+What landed is recorded **above** the list, not in the row that produced it: a merge resolves the
 workspace, so the next listing no longer contains it, and a success surface living in that row would
-take the version and the merge sha off screen moments after producing them.
+take the sha — and the version, when there is one — off screen moments after producing them. An
+integrate has no version, so its record and its surface draw none rather than an empty slot.
 
 `src/app/api/` holds hand-written interfaces mirroring the two services' wire shapes, one injectable
 service each, over `HttpClient` on the fetch backend. Nothing is generated, and nothing is shared

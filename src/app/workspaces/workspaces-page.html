@@ -52,17 +52,20 @@
   <app-empty message="This project holds no repositories." />
 }
 
-@if (releases().length > 0) {
-  <section class="releases" aria-label="Releases made here">
-    <h2>Released from this screen</h2>
+@if (landed().length > 0) {
+  <section class="landed" aria-label="Merges made here">
+    <h2>Landed from this screen</h2>
     <ul>
-      @for (release of releases(); track release.result.commitSha) {
+      @for (record of landed(); track record.result.commitSha) {
         <li>
-          <strong>{{ release.result.version }}</strong>
-          — <code>{{ release.result.branch }}</code> from workspace
-          <code>{{ release.workspaceLabel }}</code
+          @if (record.result.version) {
+            <strong>{{ record.result.version }}</strong> —
+          }
+          <code>{{ record.result.branch }}</code> →
+          <code>{{ record.result.targetBranch }}</code> from workspace
+          <code>{{ record.workspaceLabel }}</code
           >, merge commit
-          <code [title]="release.result.commitSha">{{ release.result.commitSha }}</code>
+          <code [title]="record.result.commitSha">{{ record.result.commitSha }}</code>
         </li>
       }
     </ul>
@@ -87,10 +90,10 @@
         @for (workspace of workspaceList(); track workspace.id) {
           <li>
             <app-workspace-row [workspace]="workspace">
-              <app-integrate-panel
+              <app-merge-panel
                 [workspace]="workspace"
-                [targetBranch]="targetBranch()"
-                (integrated)="onIntegrated(workspace, $event)"
+                [mainBranch]="mainBranch()"
+                (merged)="onMerged(workspace, $event)"
                 (refresh)="reloadWorkspaces()"
               />
             </app-workspace-row>

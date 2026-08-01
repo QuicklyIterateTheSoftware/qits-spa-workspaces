@@ -12,11 +12,10 @@ import type { WorkspaceDto } from '../api/dto';
  *
  * Two assertions carry more than their length. **Nothing is requested from qits-workspaces until a
  * repository is resolved**, because its listing takes a mandatory `repositoryId` and a speculative
- * call would be a guaranteed 4xx per page load. And **the release survives the reload that removes
- * the workspace** — integrating resolves the workspace, so the very next listing does not contain
- * it, and a success surface living in that row would take the version and the merge sha off screen
- * a few hundred milliseconds after producing them. Those two strings are the whole output of the
- * action.
+ * call would be a guaranteed 4xx per page load. And **what landed survives the reload that removes
+ * the workspace** — a merge resolves the workspace, so the very next listing does not contain it,
+ * and a success surface living in that row would take the version and the merge sha off screen a
+ * few hundred milliseconds after producing them. Those strings are the whole output of the action.
  */
 describe('WorkspacesPage', () => {
   let http: HttpTestingController;
@@ -25,7 +24,8 @@ describe('WorkspacesPage', () => {
   const PROJECTS_URL = '/projects/api/projects';
   const REPOSITORIES_URL = '/projects/api/projects/p1/repositories';
   const WORKSPACES_URL = '/workspaces/api/workspaces';
-  const INTEGRATE_URL = '/workspaces/api/workspaces/7/integrate';
+  const RELEASE_URL = '/workspaces/api/workspaces/7/release';
+  const INTEGRATE_URL = '/workspaces/api/workspaces/8/integrate';
 
   const workspace = (
     id: number,
@@ -171,10 +171,24 @@ describe('WorkspacesPage', () => {
 
   it('names the repository’s own default branch rather than assuming “main”', async () => {
     // Every repository here says main and none of them promises to; the destination is read from
-    // qits-projects, so a repository on `trunk` is described correctly.
-    await openAt([workspace(7, 'explorer-grouping')], 'trunk');
+    // qits-projects, so a repository on `trunk` is described correctly — and a workspace parented
+    // on `trunk` is the one that gets the release door.
+    await openAt([workspace(7, 'explorer-grouping', { parent: 'trunk' })], 'trunk');
     expect(page().textContent).toContain('merges into');
     expect(page().textContent).toContain('trunk');
+    expect(button('Release…')).toBeTruthy();
+  });
+
+  it('gives each row the door its parent branch calls for', async () => {
+    await openAt([
+      workspace(7, 'explorer-grouping'),
+      workspace(8, 'group-runs', { parent: 'epic/explorer', branch: 'task/group-runs' }),
+    ]);
+
+    const doors = [...page().querySelectorAll('app-merge-panel button')].map((candidate) =>
+      (candidate.textContent ?? '').trim(),
+    );
+    expect(doors).toEqual(['Release…', 'Integrate…']);
   });
 
   it('says a repository has no live workspaces rather than drawing nothing', async () => {
@@ -203,17 +217,16 @@ describe('WorkspacesPage', () => {
     expect(page().textContent).toContain('explorer-grouping');
   });
 
-  it('keeps the version and the merge sha after the reload drops the integrated workspace', async () => {
-    await openAt([workspace(7, 'explorer-grouping')]);
-
-    button('Integrate…').click();
+  /** Open a row's door, write a summary and submit it. */
+  async function sendThroughTheDoor(door: string, summary: string): Promise<void> {
+    button(door).click();
     await settle();
 
     const input = page().querySelector<HTMLInputElement>('input.summary');
     if (!input) {
       throw new Error('the summary field is not on screen');
     }
-    input.value = 'teach the explorer to group runs by repository';
+    input.value = summary;
     input.dispatchEvent(new Event('input'));
     await settle();
 
@@ -221,8 +234,13 @@ describe('WorkspacesPage', () => {
       .querySelector('form')
       ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await settle();
+  }
 
-    http.expectOne(INTEGRATE_URL).flush({
+  it('keeps the version and the merge sha after the reload drops the released workspace', async () => {
+    await openAt([workspace(7, 'explorer-grouping')]);
+    await sendThroughTheDoor('Release…', 'teach the explorer to group runs by repository');
+
+    http.expectOne(RELEASE_URL).flush({
       version: '2026.731.193059',
       commitSha: '9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456',
       branch: 'explorer-grouping',
@@ -233,40 +251,54 @@ describe('WorkspacesPage', () => {
     flushWorkspaces([]);
     await settle();
 
-    const releases = page().querySelector('.releases');
-    expect(releases?.textContent).toContain('2026.731.193059');
-    expect(releases?.textContent).toContain('9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456');
-    expect(releases?.textContent).toContain('explorer-grouping');
+    const landed = page().querySelector('.landed');
+    expect(landed?.textContent).toContain('2026.731.193059');
+    expect(landed?.textContent).toContain('9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456');
+    expect(landed?.textContent).toContain('explorer-grouping');
     expect(page().querySelectorAll('app-workspace-row').length).toBe(0);
     expect(page().textContent).toContain('No live workspaces');
   });
 
+  it('records an integrate by where it landed, with no version to show for it', async () => {
+    await openAt([
+      workspace(8, 'group-runs', { parent: 'epic/explorer', branch: 'task/group-runs' }),
+    ]);
+    await sendThroughTheDoor('Integrate…', 'land the task on its epic');
+
+    http.expectOne(INTEGRATE_URL).flush({
+      commitSha: '4b5c6d7e8f90123456789abcdef0123456789abc',
+      branch: 'task/group-runs',
+      targetBranch: 'epic/explorer',
+    });
+    await settle();
+
+    flushWorkspaces([]);
+    await settle();
+
+    const landed = page().querySelector('.landed');
+    expect(landed?.textContent).toContain('task/group-runs');
+    expect(landed?.textContent).toContain('epic/explorer');
+    expect(landed?.textContent).toContain('4b5c6d7e8f90123456789abcdef0123456789abc');
+    // No version was stamped, so the record shows none rather than a blank where one would be.
+    expect(landed?.querySelector('strong')).toBeNull();
+  });
+
   it('re-reads the list when a row reports it is already integrated', async () => {
     await openAt([workspace(7, 'explorer-grouping')]);
-
-    button('Integrate…').click();
-    await settle();
-    const input = page().querySelector<HTMLInputElement>('input.summary');
-    input!.value = 'anything';
-    input!.dispatchEvent(new Event('input'));
-    await settle();
-    page()
-      .querySelector('form')
-      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await settle();
+    await sendThroughTheDoor('Release…', 'anything');
 
     http
-      .expectOne(INTEGRATE_URL)
+      .expectOne(RELEASE_URL)
       .flush({ message: 'already integrated' }, { status: 409, statusText: 'Conflict' });
     await settle();
 
     button('Refresh the list').click();
     await settle();
 
-    // No release is recorded — nothing was released — and the list is simply read again.
+    // Nothing is recorded — nothing landed — and the list is simply read again.
     flushWorkspaces([]);
     await settle();
-    expect(page().querySelector('.releases')).toBeNull();
+    expect(page().querySelector('.landed')).toBeNull();
     expect(page().textContent).toContain('No live workspaces');
   });
 });

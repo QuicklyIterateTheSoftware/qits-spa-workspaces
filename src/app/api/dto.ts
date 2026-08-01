@@ -22,9 +22,9 @@ export type WorkspaceStatus = 'ACTIVE' | 'INTEGRATED' | 'ABANDONED';
  * The container's runtime state, independent of {@link WorkspaceStatus}: the branch is the source
  * of truth and the container is a recreatable cache of it.
  *
- * It is shown here and never gated on. **Integrate reads the durable branch, not the container** —
- * qits-workspaces merges from the bare origin's refs — so a STOPPED workspace integrates exactly
- * as well as a RUNNING one, and disabling the button on one would be a fiction.
+ * It is shown here and never gated on. **Both merges read the durable branch, not the container** —
+ * qits-workspaces merges from the bare origin's refs — so a STOPPED workspace releases and
+ * integrates exactly as well as a RUNNING one, and disabling the button on one would be a fiction.
  */
 export type WorkspaceRuntimeStatus = 'RUNNING' | 'STOPPED' | 'PROVISIONING' | 'FAILED';
 
@@ -34,9 +34,14 @@ export type AgentActivityState = 'IDLE' | 'BUSY' | 'WAITING';
 /**
  * One workspace, as qits-workspaces lists it.
  *
- * `id` is the identifier every route addresses — including the integrate one. `workspaceId` is the
+ * `id` is the identifier every route addresses — including the two merge ones. `workspaceId` is the
  * branch-derived *label*: unique only per repository and reusable once the workspace resolves, so
  * it is displayed and never used to address anything.
+ *
+ * `parent` is the branch this work goes home to, and it is what picks the door: a workspace whose
+ * parent is the repository's default branch is **released**, any other workspace is **integrated**
+ * into that parent. So this field is not decoration on the row — it decides which action the row
+ * offers.
  */
 export interface WorkspaceDto {
   readonly id: number;
@@ -66,17 +71,19 @@ export interface WorkspaceEntriesResponse {
 }
 
 /**
- * What `POST /workspaces/api/workspaces/{id}/integrate` takes. One field, and no target.
+ * What both `POST …/{id}/release` and `POST …/{id}/integrate` take. One field, and no target.
  *
- * **The target is not a parameter: it is always the repository's default branch by construction.**
- * That is the feature — integrate is the one door into `main` — so a client that could name a
- * target would be describing an API that does not exist.
+ * **The target is not a parameter in either call: it is derived from the workspace.** Release always
+ * lands on the repository's default branch, integrate always lands on the workspace's parent branch,
+ * and both are facts the service already holds — so a client that could name a target would be
+ * describing an API that does not exist.
  *
- * The summary becomes the merge commit's subject, as `release(<version>): <summary>`. It is capped
- * at 100 characters on both sides: the conventional 72-character subject budget minus roughly the
- * 24 the version scope costs, rounded to a number a person can be told.
+ * The summary becomes the merge commit's subject, as `release(<version>): <summary>` or
+ * `integrate(<branch>): <summary>`. It is capped at 100 characters on both sides: the conventional
+ * 72-character subject budget minus roughly the 24 a scope costs, rounded to a number a person can
+ * be told.
  */
-export interface IntegrateRequest {
+export interface MergeRequest {
   readonly summary: string;
 }
 
@@ -84,17 +91,31 @@ export interface IntegrateRequest {
 export const SUMMARY_MAX_LENGTH = 100;
 
 /**
- * What a successful integrate answers.
+ * What a successful release answers.
  *
  * All three fields are worth showing and none is derivable from the others: `version` is the stamp
  * that was just minted (`2026.731.193059` — year, month+day, time, as integers), `commitSha` is the
  * merge commit that carries both the merge and the version bump, and `branch` is the source branch
- * that was integrated, which the merge's parents record as a sha but never as a name.
+ * that was released, which the merge's parents record as a sha but never as a name.
  */
-export interface IntegrateResponse {
+export interface ReleaseResponse {
   readonly version: string;
   readonly commitSha: string;
   readonly branch: string;
+}
+
+/**
+ * What a successful integrate answers. **No version** — an integrate stamps none, because it is a
+ * merge and not a release.
+ *
+ * `targetBranch` is the parent the work landed on. It is answered rather than assumed: the client
+ * picked this door from the workspace's `parent`, and the service is the one that decides where an
+ * integrate goes.
+ */
+export interface IntegrateResponse {
+  readonly commitSha: string;
+  readonly branch: string;
+  readonly targetBranch: string;
 }
 
 /** A project's dns record, or the whole object is null when it registers no domain. */
