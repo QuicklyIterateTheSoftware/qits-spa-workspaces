@@ -1,4 +1,20 @@
-@if (framable().length === 0) {
+@if (containerGone()) {
+  <p class="gone" role="status">
+    The container is not answering, so this tab cannot know what to frame — the application and the
+    service list that declares it both live inside it. Start the container from the status strip
+    above, then retry.
+  </p>
+  <p class="again">
+    <qits-button variant="ghost" size="sm" (pressed)="reload()">Retry</qits-button>
+  </p>
+} @else if (services().kind !== 'ready') {
+  <app-async
+    [state]="services()"
+    loadingLabel="Loading the services"
+    errorLabel="Could not load the services"
+    (retry)="reload()"
+  />
+} @else if (framable().length === 0) {
   @if (stopped().length > 0) {
     <app-empty
       message="No web-viewable service is running — start one from the Services tab and it appears here."

@@ -136,6 +136,55 @@ describe('WebViewPanel', () => {
     expect(text()).toContain('declares no web-viewable service');
   });
 
+  describe('when the services could not be read', () => {
+    /** Open the panel and answer its one read with a failure instead of a list. */
+    async function fail(status: number, body: object = { message: 'the daemon is gone' }) {
+      fixture = TestBed.createComponent(PanelHost);
+      fixture.detectChanges();
+      await settle();
+      http
+        .expectOne('/workspaces/container/7/services')
+        .flush(body, { status, statusText: 'nope' });
+      await settle();
+      fixture.detectChanges();
+    }
+
+    it('never claims the checkout declares nothing, because it never read the checkout', async () => {
+      await fail(502);
+      expect(text()).not.toContain('declares no web-viewable service');
+      expect(frame()).toBeNull();
+    });
+
+    it('names the container for the unreachable family rather than showing a status code', async () => {
+      await fail(502);
+      expect(text()).toContain('The container is not answering');
+    });
+
+    it('offers a way back, which this tab has no start verb of its own to be', async () => {
+      await fail(503);
+      const retry = [...element().querySelectorAll<HTMLElement>('button')].find((button) =>
+        button.textContent?.includes('Retry'),
+      );
+      expect(retry).toBeDefined();
+
+      retry!.click();
+      await settle();
+      http.expectOne('/workspaces/container/7/services').flush({
+        services: [service('dev', 'READY', { webViewable: true, webView: {} })],
+      });
+      await settle();
+      fixture.detectChanges();
+      expect(frame()).not.toBeNull();
+    });
+
+    it('leaves an ordinary failure to the shared strip, which carries the status', async () => {
+      await fail(500, { message: 'the daemon fell over' });
+      expect(text()).not.toContain('The container is not answering');
+      expect(text()).toContain('Could not load the services');
+      expect(text()).toContain('500');
+    });
+  });
+
   it('opens a URL bar seeded from the frame, and refuses another address', async () => {
     await open([service('dev', 'READY', { webViewable: true, webView: { entryPath: 'home' } })]);
     element().querySelector<HTMLButtonElement>('.globe')!.click();

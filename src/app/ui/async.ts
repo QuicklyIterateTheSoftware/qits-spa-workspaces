@@ -11,7 +11,12 @@ import type { Loadable } from './loadable';
  * keep an unasked-for list out of the DOM.
  *
  * The retry is an output, not a callback input: the caller owns the request and this owns the
- * button. Copied from qits-spa-cd.
+ * button.
+ *
+ * Copied from qits-spa-cd, and **the copy has since diverged**: the template used to end the error
+ * line with a literal full stop, which doubled up on every message that already carried one — a
+ * failed navigation read "…could not load the page..". The sentence is terminated by
+ * {@link message} now. The same defect is still in qits-spa-cd; fixing it there is its own change.
  */
 @Component({
   selector: 'app-async',
@@ -27,7 +32,7 @@ import type { Loadable } from './loadable';
       }
       @case ('error') {
         <p class="async async-error" role="alert">
-          <span>⚠ {{ errorLabel() }} — {{ message() }}.</span>
+          <span>⚠ {{ errorLabel() }} — {{ message() }}</span>
           <qits-button variant="ghost" size="sm" (pressed)="retry.emit()">Retry</qits-button>
         </p>
       }
@@ -90,8 +95,20 @@ export class Async {
   /** Pressed the retry — the caller re-issues its own request. */
   readonly retry = output<void>();
 
+  /**
+   * The failure's message, ended with exactly one full stop.
+   *
+   * The messages arrive from two places that disagree about punctuation: `describeError` composes
+   * bare fragments ("the service is unreachable", "502"), while a server's `{"message": …}` is
+   * often a written sentence that already ends. The stop is added here, once, so neither caller has
+   * to know — and so no message can end in "..".
+   */
   protected readonly message = computed(() => {
     const state = this.state();
-    return state.kind === 'error' ? state.message : '';
+    if (state.kind !== 'error') {
+      return '';
+    }
+    const message = state.message.trimEnd();
+    return message === '' || /[.!?…]$/.test(message) ? message : `${message}.`;
   });
 }

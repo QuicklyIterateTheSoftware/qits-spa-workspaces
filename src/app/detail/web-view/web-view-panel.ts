@@ -16,12 +16,16 @@ import { QITS_API_BASE } from '../../api/api-base';
 import { ComponentMapApi, type ComponentMapDto } from '../../api/component-map-api';
 import type { ServiceDto } from '../../api/services-api';
 import { WorkspaceServices } from '../../api/workspace-services';
+import { Async } from '../../ui/async';
 import { Empty } from '../../ui/empty';
 import { PickedContext } from '../chat/picked-context';
 import { ElementPicker, type FramePick } from './element-picker';
 
 /** The states in which a declared service is worth framing. Anything else has nothing listening. */
 const LIVE: readonly ServiceDto['state'][] = ['STARTING', 'READY', 'RESTARTING'];
+
+/** The statuses that mean the container is not answering, as opposed to answering "no". */
+const UNREACHABLE: readonly number[] = [0, 502, 503, 504];
 
 /**
  * The Web view tab: the workspace's own application, framed.
@@ -50,11 +54,22 @@ const LIVE: readonly ServiceDto['state'][] = ['STARTING', 'READY', 'RESTARTING']
  * It is fetched on arming rather than on load, because a tab nobody picks in should not pay for a
  * scan of the tree, and it is not fetched per *pick*, because a map that misses a component created
  * since the last activation simply skips attribution.
+ *
+ * ## A failed read is not an empty checkout
+ *
+ * `framable()` is empty for four different reasons — nothing asked yet, the read is in flight, the
+ * read failed, and the checkout really declares nothing — and this panel used to render the last
+ * sentence for all four. "This checkout declares no web-viewable service" against a 502 is a
+ * confident statement about a file the panel never got to read, and it sends the reader to look at
+ * `.qits-config.yml` for a fault that is in the container. The states are separated the way every
+ * sibling panel separates them: the shared strip for waiting and for an ordinary failure, and the
+ * one failure this panel can explain better than a status code — the container not answering — in
+ * words, with a retry, since this tab has no start verb of its own.
  */
 @Component({
   selector: 'app-web-view-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Empty, QitsButton],
+  imports: [Async, Empty, QitsButton],
   templateUrl: './web-view-panel.html',
   styleUrl: './web-view-panel.css',
 })
@@ -150,6 +165,19 @@ export class WebViewPanel {
     return state.value.filter((service) => service.webViewable && !LIVE.includes(service.state));
   });
 
+  /**
+   * Whether the read failed because nothing is listening for this container.
+   *
+   * The same rule the services panel applies, and it is why this branch is prose rather than the
+   * shared strip: "502" beside a tab whose whole content is a frame into that container says less
+   * than one sentence naming the container. Everything else — a 404, a 500, a parse failure — is an
+   * ordinary failure and gets the ordinary strip.
+   */
+  protected readonly containerGone = computed(() => {
+    const state = this.services();
+    return state.kind === 'error' && UNREACHABLE.includes(state.status);
+  });
+
   protected readonly service = computed<ServiceDto | null>(() => {
     const chosen = this.chosen();
     return this.framable().find((service) => idOf(service) === chosen) ?? null;
@@ -240,6 +268,11 @@ export class WebViewPanel {
   protected choose(serviceId: string): void {
     this.chosen.set(serviceId);
     this.barOpen.set(false);
+  }
+
+  /** Re-read the shared services entry. Every reader of it sees the result, which is the point. */
+  protected reload(): void {
+    void this.entry.refresh();
   }
 
   protected onFrameLoad(): void {
