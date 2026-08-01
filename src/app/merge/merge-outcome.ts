@@ -13,7 +13,7 @@ import { describeError, serverMessage, statusOf } from '../ui/loadable';
 export type MergeAction = 'release' | 'integrate';
 
 /**
- * Why a release or an integrate did not happen — and the five answers are five different things a
+ * Why a release or an integrate did not happen — and the six answers are six different things a
  * person does something different about, which is the whole reason this type exists instead of one
  * red box. The 409 family is shared by both doors, so this classification is too.
  *
@@ -27,15 +27,18 @@ export type MergeAction = 'release' | 'integrate';
  * - `already-integrated` — this branch is already an ancestor of the target. The work is in. This is
  *   what a lost 200 looks like on retry, and it is deliberately **not** an error to apologise for:
  *   the right response is to refresh the list and see the workspace resolved.
+ * - `release-required` — the merge targets the repository's default branch, and that branch has one
+ *   door. Nothing is wrong with the work: the wrong door was knocked on, which happens when the
+ *   list's reading of the parent is stale. The way out is the other door, so this surface offers it
+ *   rather than describing it.
  * - `refused` — the service declined for some other reason it stated: a blank summary, an unknown
- *   workspace, a workspace that is not ACTIVE, the git host rejecting the push, or an integrate on
- *   a workspace whose parent is the default branch — which is the release door, and the service
- *   says so. Its own sentence is the most useful thing on screen, so it is shown verbatim.
+ *   workspace, a workspace that is not ACTIVE, or the git host rejecting the push. Its own sentence
+ *   is the most useful thing on screen, so it is shown verbatim.
  * - `unavailable` — the request never got an answer, or the service failed. Nothing is known about
  *   whether anything happened; refresh before assuming either way.
  */
 export type MergeFailureKind =
-  'conflict' | 'moved' | 'already-integrated' | 'refused' | 'unavailable';
+  'conflict' | 'moved' | 'already-integrated' | 'release-required' | 'refused' | 'unavailable';
 
 /** A failed release or integrate, classified, with whatever the service said about it. */
 export interface MergeFailure {
@@ -63,18 +66,24 @@ export interface MergeFailure {
  * a lost race `NOT_FAST_FORWARD`, so a declared push rejection is the git host saying no for a
  * reason of its own — a protected branch, a missing token — and offering "press it again" would be
  * advice that cannot work.
+ *
+ * `RELEASE_REQUIRED` is qits-workspaces' main-target guard, and both merge endpoints throw it. It
+ * is the one 409 with a button rather than a sentence: the work is fine and the other door is right
+ * there.
  */
 const REASONS: Readonly<Record<string, MergeFailureKind>> = {
   CONFLICT: 'conflict',
   MERGE_CONFLICT: 'conflict',
   NOT_FAST_FORWARD: 'moved',
   ALREADY_INTEGRATED: 'already-integrated',
+  RELEASE_REQUIRED: 'release-required',
   PUSH_REJECTED: 'refused',
 };
 
 /** Prose fallbacks, in priority order — the first match wins, so the specific ones come first. */
 const PATTERNS: readonly (readonly [RegExp, MergeFailureKind])[] = [
   [/already[- ]integrated|already an ancestor|already merged|already in /i, 'already-integrated'],
+  [/release[- ]required|requires a release|use the release/i, 'release-required'],
   [/fast[- ]forward|moved under|has moved|non-ff/i, 'moved'],
   [/conflict/i, 'conflict'],
 ];

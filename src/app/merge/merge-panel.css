@@ -107,10 +107,11 @@ code {
   }
 }
 
-/* --- the five outcomes ----------------------------------------------------------------------- */
+/* --- the six outcomes ------------------------------------------------------------------------ */
 
 /* Each state gets its own colour because each is a different thing to do next, and a single red
-   box for all five would hide that a conflict needs work and a moved branch needs one more press. */
+   box for all six would hide that a conflict needs work, a moved branch needs one more press, and
+   the wrong door needs no work at all — only the other door. */
 
 .surface {
   padding: 0.7rem 0.85rem;
@@ -201,4 +202,11 @@ code {
   color: #1e3a8a;
   background: #eff6ff;
   border-color: #bfdbfe;
+}
+
+/* Not a failure colour: the work is fine and the other door is one press away. */
+.surface-release-required {
+  color: #3730a3;
+  background: #eef2ff;
+  border-color: #c7d2fe;
 }

@@ -170,6 +170,35 @@
           </div>
         }
 
+        @case ('release-required') {
+          <div class="surface surface-release-required" role="alert">
+            <h4>
+              <code>{{ mainBranch() }}</code> has one door
+            </h4>
+            <p>
+              This work goes into <code>{{ mainBranch() }}</code
+              >, and the only way in is a release — a merge with a version stamped on it. Nothing
+              landed and nothing is wrong with the branch; this row read its parent from a listing
+              that has since moved on.
+            </p>
+            <p class="said">{{ problem.message }}</p>
+            <div class="surface-actions">
+              @if (isRelease()) {
+                <qits-button variant="primary" size="sm" (pressed)="edit()">
+                  Back to the summary
+                </qits-button>
+              } @else {
+                <qits-button variant="primary" size="sm" (pressed)="releaseInstead()">
+                  Release into {{ mainBranch() }} instead
+                </qits-button>
+              }
+              <qits-button variant="ghost" size="sm" (pressed)="askRefresh()">
+                Refresh the list
+              </qits-button>
+            </div>
+          </div>
+        }
+
         @case ('refused') {
           <div class="surface surface-refused" role="alert">
             <h4>{{ actionLabel() }} was refused</h4>

@@ -107,14 +107,29 @@ describe('classifyMergeFailure', () => {
     expect(failure.message).toContain('the workspace is not ACTIVE');
   });
 
-  it('reports the wrong-door 409 in the service’s words', () => {
-    // Integrating a workspace whose parent is the default branch is the release door, and the
-    // service is the authority on that — this client's reading of the row is not.
+  it('reads the main-target guard as its own outcome, not as a refusal', () => {
+    // RELEASE_REQUIRED is the one 409 with a button rather than a sentence: nothing is wrong with
+    // the work, the other door is simply the right one, and the panel offers it.
     const failure = classifyMergeFailure(
-      rejection(409, { message: 'this workspace is off main; use the release door' }, 'integrate'),
+      rejection(
+        409,
+        { reason: 'RELEASE_REQUIRED', message: 'target main requires a release' },
+        'integrate',
+      ),
     );
-    expect(failure.kind).toBe('refused');
-    expect(failure.message).toContain('use the release door');
+    expect(failure.kind).toBe('release-required');
+    expect(failure.message).toContain('requires a release');
+  });
+
+  it('reads the same guard out of the message alone', () => {
+    const failure = classifyMergeFailure(
+      rejection(
+        409,
+        { message: 'this workspace targets main; use the release endpoint' },
+        'integrate',
+      ),
+    );
+    expect(failure.kind).toBe('release-required');
   });
 
   it('treats every other 4xx as a refusal that speaks for itself', () => {

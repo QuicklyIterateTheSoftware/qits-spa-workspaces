@@ -33,7 +33,9 @@ import {
  * only ever eligible for one of them: work off the default branch is *released* into it, and work
  * off any other branch is *integrated* into that parent. Which one a row offers is therefore read
  * from the workspace's `parent`, not chosen by the person pressing — offering both would put a
- * button on every row that answers 409 every time it is pressed.
+ * button on every row that answers 409 every time it is pressed. The reading can be out of date,
+ * and the service says so with `RELEASE_REQUIRED`: that surface hands over the other door, which is
+ * the only thing that ever changes a row's door.
  *
  * **The panel owns its request.** Merging one workspace is genuinely independent of merging
  * another: one row's conflict says nothing about the next row, and a page-level "the merge failed"
@@ -44,7 +46,7 @@ import {
  * eight open text fields is a form, not a list, so the summary input appears on the press and the
  * row is otherwise one line.
  *
- * **The summary survives every failure.** Two of the five outcomes are retried by pressing the same
+ * **The summary survives every failure.** Three of the six outcomes are retried by pressing a
  * button again — `moved` is resolved by nothing but a second attempt — and a person who has to
  * retype their sentence to retry will write a worse one.
  */
@@ -83,24 +85,38 @@ export class MergePanel {
   protected readonly shortSha = shortSha;
 
   /**
-   * Where this workspace's work goes: its parent branch, or the default branch when the service
-   * reports no parent.
+   * The door the service told this row to use, once it has said so. Null until then.
+   *
+   * The only writer is the `RELEASE_REQUIRED` way out: qits-workspaces' main-target guard says this
+   * work goes through the release door, and the service outranks the row's own reading.
+   */
+  private readonly chosenDoor = signal<MergeAction | null>(null);
+
+  /**
+   * The workspace's parent branch, or the default branch when the service reports no parent.
    *
    * A parentless workspace is treated as branched off the default branch, which is what it is: the
    * field is nullable because qits-workspaces cannot always name a parent, not because the work
    * belongs nowhere.
    */
-  protected readonly target = computed(() => this.workspace().parent ?? this.mainBranch());
+  private readonly parentBranch = computed(() => this.workspace().parent ?? this.mainBranch());
 
   /**
-   * Release or integrate, decided by where the work goes rather than by the person pressing.
+   * Release or integrate, read from where the work goes rather than chosen by the person pressing.
    *
-   * This is the client's reading of the row and never the authority: the service refuses an
-   * integrate aimed at the default branch with a 409 naming the release door, so a stale list
-   * produces a clear refusal instead of a wrong merge.
+   * This is the client's reading of the row and never the authority: an integrate aimed at the
+   * default branch comes back `RELEASE_REQUIRED`, and {@link releaseInstead} then lets the service's
+   * answer overrule the reading — which is what makes a stale `parent` a button rather than a
+   * dead end.
    */
-  protected readonly action = computed<MergeAction>(() =>
-    this.target() === this.mainBranch() ? 'release' : 'integrate',
+  protected readonly action = computed<MergeAction>(
+    () =>
+      this.chosenDoor() ?? (this.parentBranch() === this.mainBranch() ? 'release' : 'integrate'),
+  );
+
+  /** Where this press will land. It follows the door, so every surface names the right branch. */
+  protected readonly target = computed(() =>
+    this.isRelease() ? this.mainBranch() : this.parentBranch(),
   );
 
   protected readonly isRelease = computed(() => this.action() === 'release');
@@ -171,6 +187,19 @@ export class MergePanel {
 
   /** Back to the field with the text still in it — the way out of a conflict or a refusal. */
   protected edit(): void {
+    this.state.set({ kind: 'editing' });
+  }
+
+  /**
+   * Take the door the service named, and stop at the summary rather than sending it.
+   *
+   * The switch changes what the commit will be — `integrate(<branch>)` becomes
+   * `release(<version>)`, and this press will stamp a version and publish — so it goes back to the
+   * form with the sentence intact and the new preview showing. One more press sends it. Firing
+   * straight through would turn one press on the wrong door into a release nobody confirmed.
+   */
+  protected releaseInstead(): void {
+    this.chosenDoor.set('release');
     this.state.set({ kind: 'editing' });
   }
 

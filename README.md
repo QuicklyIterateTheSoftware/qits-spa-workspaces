@@ -39,7 +39,7 @@ The summary field previews the subject it will write. A release's version is lef
 first would be a number appearing in no commit anywhere. An integrate's scope is the source branch,
 which is already known, so that preview is exact.
 
-**The five outcomes are five surfaces, not one red box**, because each is a different thing to do
+**The six outcomes are six surfaces, not one red box**, because each is a different thing to do
 next. Both doors share them, because both answer out of the same `409` family:
 
 | Outcome                 | What it means                                                 | The way out               |
@@ -48,14 +48,24 @@ next. Both doors share them, because both answer out of the same `409` family:
 | **Merge conflict**      | the branch does not apply; nothing landed                     | resolve, then press again |
 | **Target moved**        | another merge won the race; no version spent                  | press again, same summary |
 | **Already integrated**  | the branch is in; nothing was done twice                      | refresh the list          |
+| **Release required**    | the target is the default branch, which has one door          | the release door, offered |
 | **Refused / no answer** | the service's own sentence, verbatim                          | as it says                |
 
-The three middle rows all arrive as `409`. The platform's error envelope carries only `{"message"}`
+The four middle rows all arrive as `409`. The platform's error envelope carries only `{"message"}`
 today, so `merge-outcome.ts` reads an optional structured `reason` (and an optional `conflicts` file
 list) **first** and falls back to matching the message — and an unrecognised 409 is reported as a
-refusal in the server's words rather than guessed into one of the three. `PUSH_REJECTED` is a
+refusal in the server's words rather than guessed into one of the others. `PUSH_REJECTED` is a
 refusal and deliberately not a lost race: the family spells that `NOT_FAST_FORWARD`, so a declared
 push rejection is the git host saying no for a reason "press it again" cannot fix.
+
+`RELEASE_REQUIRED` is the one 409 with a button rather than a sentence. It is qits-workspaces'
+main-target guard, thrown by both endpoints, and it means the row read a `parent` that has since
+moved on — nothing is wrong with the work. The surface offers **Release into `<main>` instead**,
+which overrules the row's own reading and returns to the summary with the sentence intact and the
+release subject in the preview. It stops there rather than sending: the press being offered stamps a
+version and publishes, which is not the act that was asked for, so it is confirmed by one more
+press. Meeting the guard on the release door itself offers the summary back instead, because
+"release instead" would be advice to redo what just failed.
 
 What landed is recorded **above** the list, not in the row that produced it: a merge resolves the
 workspace, so the next listing no longer contains it, and a success surface living in that row would

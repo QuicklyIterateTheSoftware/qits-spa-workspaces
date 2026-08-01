@@ -13,11 +13,11 @@ import { MergePanel } from './merge-panel';
  * about a row picking the right one. Getting that wrong puts a button on a row that answers 409
  * every time it is pressed.
  *
- * The five failure surfaces are the reason this suite is long, and they earn it: they look
- * identical in review (five `@case` blocks) and completely different on screen, and getting one
- * wrong sends a person to fix a conflict that does not exist or to re-press a button that will
- * never work. So each is asserted by what it *says*, not by which branch rendered. They are shared
- * by both doors, which is asserted rather than assumed.
+ * The six failure surfaces are the reason this suite is long, and they earn it: they look identical
+ * in review (six `@case` blocks) and completely different on screen, and getting one wrong sends a
+ * person to fix a conflict that does not exist or to re-press a button that will never work. So
+ * each is asserted by what it *says*, not by which branch rendered. They are shared by both doors,
+ * which is asserted rather than assumed.
  *
  * Two assertions carry more than their length. **The summary survives a failure**, because `moved`
  * is resolved by pressing the same button again and a person who has to retype their sentence will
@@ -411,20 +411,53 @@ describe('MergePanel', () => {
     expect(element.querySelector('.surface-conflict')).toBeNull();
   });
 
-  it('shows the wrong-door 409 verbatim, because the service is the authority on the door', async () => {
-    // The row said integrate, from a `parent` the list may have read a while ago. The service is
-    // the one that decides, and its sentence is the useful thing on screen.
+  it('answers the wrong door with the right one, and sends the same summary through it', async () => {
+    // The row said integrate, from a `parent` the list read a while ago. The service's main-target
+    // guard is the authority, so its answer overrules the reading — and the way out is the other
+    // door, offered rather than described.
     await mount(STACKED);
     await openAndSubmit('land the task on its epic');
     await reject(
       409,
-      { message: 'this workspace is off main; use the release door' },
+      { reason: 'RELEASE_REQUIRED', message: 'target main requires a release' },
       INTEGRATE_URL,
     );
 
-    const surface = element.querySelector('.surface-refused');
-    expect(surface?.textContent).toContain('Integrate was refused');
-    expect(surface?.textContent).toContain('use the release door');
+    const surface = element.querySelector('.surface-release-required');
+    expect(surface?.textContent).toContain('has one door');
+    expect(surface?.textContent).toContain('target main requires a release');
+    expect(element.querySelector('.surface-refused')).toBeNull();
+
+    // The switch stops at the form: this press now stamps a version and publishes, which is a
+    // different act from the one that was asked for, so it is confirmed rather than assumed.
+    await press('Release into main instead');
+    expect(summaryInput().value).toBe('land the task on its epic');
+    expect(element.querySelector('.preview')?.textContent).toContain(
+      'release(YYYY.MMDD.HHMMSS): land the task on its epic',
+    );
+    expect(button('Release into main').disabled).toBe(false);
+    http.verify();
+
+    await submit();
+    const retry = http.expectOne(RELEASE_URL);
+    expect(retry.request.body).toEqual({ summary: 'land the task on its epic' });
+    retry.flush(RELEASE);
+    await settle();
+
+    expect(element.querySelector('.surface-done')?.textContent).toContain('2026.731.193059');
+  });
+
+  it('offers the summary back, not a loop, when the release door itself is guarded', async () => {
+    // Both endpoints throw RELEASE_REQUIRED, so a release can meet it too. "Release instead" would
+    // be advice to do what just failed.
+    await mount();
+    await openAndSubmit();
+    await reject(409, { reason: 'RELEASE_REQUIRED', message: 'target main requires a release' });
+
+    const surface = element.querySelector('.surface-release-required');
+    expect(surface?.textContent).toContain('has one door');
+    expect(surface?.textContent).not.toContain('instead');
+    expect(button('Back to the summary')).toBeTruthy();
   });
 
   it('admits it does not know what happened when the service does not answer', async () => {

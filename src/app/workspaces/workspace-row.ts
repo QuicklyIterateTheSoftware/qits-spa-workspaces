@@ -12,9 +12,9 @@ interface RowBadge {
 /**
  * One workspace, as a line: what it is, where its branch stands, and a slot for the action.
  *
- * Presentational and request-free. The integrate affordance is projected in rather than rendered
- * here, which keeps "what a workspace looks like" separate from "what integrating one does" — the
- * second is a state machine with five failure surfaces and the first is a heading and some badges.
+ * Presentational and request-free. The merge affordance is projected in rather than rendered here,
+ * which keeps "what a workspace looks like" separate from "what sending one home does" — the second
+ * is a state machine with six failure surfaces and the first is a heading and some badges.
  *
  * The badges are **reported state, never gates.** A STOPPED workspace integrates exactly as well as
  * a RUNNING one, because integrate reads the durable branch from the bare origin and never the
