@@ -1,0 +1,113 @@
+:host {
+  display: block;
+  padding: 0.5rem 0 1rem;
+}
+
+.strip {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.said {
+  min-width: 0;
+}
+
+.reassure {
+  margin: 0;
+  color: #4b5563;
+  font-size: 0.82rem;
+}
+
+.note {
+  margin: 0.15rem 0 0;
+  color: #6b7280;
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.verbs {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.link {
+  font-size: 0.78rem;
+}
+
+.link.stale {
+  color: #b45309;
+}
+
+.link.queued {
+  color: #4f46e5;
+}
+
+.log {
+  margin-top: 0.75rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.ended {
+  margin: 0.9rem 0 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.35rem;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 0.84rem;
+}
+
+.compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+.box {
+  flex: 1;
+  display: block;
+}
+
+.box textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.4rem;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #1f2937;
+  resize: vertical;
+}
+
+.box textarea:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 1px;
+  border-color: #4f46e5;
+}
+
+.problem {
+  margin: 0.5rem 0 0;
+  color: #b91c1c;
+  font-size: 0.84rem;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

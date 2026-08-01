@@ -1,0 +1,95 @@
+<app-async
+  [state]="commandsState()"
+  loadingLabel="Looking for a running conversation"
+  errorLabel="Could not reach the container"
+  (retry)="retry()"
+/>
+
+@if (session(); as command) {
+  <header class="strip">
+    <div class="said">
+      <p class="reassure">
+        Switching tabs keeps the agent running; come back to pick up the conversation.
+      </p>
+      @if (live()) {
+        <p class="note">
+          Sub-agent side-chains join when the run ends — the live view shows the main thread only.
+        </p>
+      }
+    </div>
+    <div class="verbs">
+      @switch (status()) {
+        @case ('reconnecting') {
+          <span class="link stale" role="status">Reconnecting…</span>
+        }
+        @case ('connecting') {
+          <span class="link stale" role="status">Attaching…</span>
+        }
+      }
+      @if (pending() > 0) {
+        <span class="link queued" role="status">
+          {{ pending() }} message{{ pending() === 1 ? '' : 's' }} waiting to send
+        </span>
+      }
+      @if (live()) {
+        <qits-button
+          variant="ghost"
+          size="sm"
+          [busy]="terminating()"
+          (pressed)="terminate()"
+        >
+          Terminate
+        </qits-button>
+      }
+    </div>
+  </header>
+
+  @if (terminateProblem(); as problem) {
+    <p class="problem" role="alert">⚠ {{ problem }}</p>
+  }
+
+  <section class="log" aria-label="The conversation" aria-live="polite">
+    @if (conversation().items.length === 0) {
+      <p class="note">
+        @if (status() === 'open') {
+          The session is attached and has said nothing yet.
+        } @else {
+          Attaching to the conversation…
+        }
+      </p>
+    } @else {
+      <app-conversation [items]="conversation().items" />
+    }
+  </section>
+
+  @if (conversation().closed) {
+    <p class="ended">
+      This conversation has ended. Its transcript is complete, side-chains and all.
+    </p>
+  } @else {
+    <footer class="compose">
+      <label class="box">
+        <span class="sr">Your next message</span>
+        <textarea
+          rows="3"
+          placeholder="Say the next thing. Ctrl/⌘ + Enter sends."
+          [value]="draft()"
+          (input)="draft.set($any($event.target).value)"
+          (keydown)="onKey($event)"
+        ></textarea>
+      </label>
+      <qits-button variant="primary" [disabled]="!canSend()" (pressed)="send()">Send</qits-button>
+    </footer>
+  }
+} @else if (commandsState().kind === 'ready') {
+  <header class="strip">
+    <p class="reassure">
+      Switching tabs keeps the agent running; come back to pick up the conversation.
+    </p>
+  </header>
+  <app-prompt-panel
+    [workspaceRowId]="workspaceRowId()"
+    [preamble]="preamble()"
+    (launched)="onLaunched($event)"
+  />
+}

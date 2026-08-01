@@ -138,6 +138,23 @@ describe('WorkspaceDetailPage', () => {
       .expectOne((request) => request.url.endsWith('/active-process'))
       .flush({ technicalProcessId: processId });
     await settle();
+    await answerChatPanel();
+  }
+
+  /**
+   * The Chat panel's own budget, paid on every open because Chat is the tab a bare URL selects — the
+   * `T` in the page's `3 + T`. The container's command list, then the saved draft once the list has
+   * said nothing is running.
+   */
+  async function answerChatPanel(): Promise<void> {
+    for (const request of http.match((candidate) => candidate.url.endsWith('/commands'))) {
+      request.flush({ entries: [] });
+    }
+    await settle();
+    for (const request of http.match((candidate) => candidate.url.endsWith('/prompt-draft'))) {
+      request.flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    }
+    await settle();
   }
 
   /**
@@ -174,6 +191,7 @@ describe('WorkspaceDetailPage', () => {
       }
     }
     await settle();
+    await answerChatPanel();
   });
 
   it('draws the workspace, its branch and where it was forked from', async () => {
@@ -237,6 +255,7 @@ describe('WorkspaceDetailPage', () => {
     // The remount tore the panel down with the rest of the subtree, so it reads the new container.
     answerFilesPanel(8);
     await settle();
+    await answerChatPanel();
 
     expect(detail.remounts()).toBe(1);
     expect(element().textContent).toContain('task/other');

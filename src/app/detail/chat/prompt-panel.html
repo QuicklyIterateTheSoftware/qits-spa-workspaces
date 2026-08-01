@@ -1,0 +1,123 @@
+@if (restoredAt(); as at) {
+  <p class="restored">
+    <span>Restored draft from {{ ago(at) }}</span>
+    <qits-button variant="ghost" size="sm" (pressed)="discard()">Discard</qits-button>
+  </p>
+}
+
+<section class="speech" aria-label="Dictation">
+  @if (unsupported()) {
+    <p class="note">This browser cannot record audio, so dictation is not available here.</p>
+  } @else if (recording()) {
+    <qits-button variant="secondary" size="sm" (pressed)="stopRecording()">Stop</qits-button>
+    <app-level-meter [level]="level()" />
+    <span class="note">Speak — each pause is transcribed and added to the prompt.</span>
+  } @else {
+    <qits-button variant="ghost" size="sm" [busy]="starting()" (pressed)="record()">
+      Record
+    </qits-button>
+    <span class="note">Dictate the prompt instead of typing it.</span>
+  }
+
+  @if (transcribing() > 0) {
+    <span class="note working" role="status">
+      Transcribing {{ transcribing() }} clip{{ transcribing() === 1 ? '' : 's' }}…
+    </span>
+  }
+</section>
+
+@if (micProblem(); as problem) {
+  <p class="problem" role="alert">⚠ {{ problem }}</p>
+}
+
+<label class="box">
+  <span class="sr">The prompt</span>
+  <textarea
+    rows="8"
+    placeholder="Tell the agent what to change in this workspace."
+    [value]="text()"
+    (input)="onType($any($event.target).value)"
+  ></textarea>
+</label>
+
+@if (offerRefine() && canRefine()) {
+  <section class="refine" aria-label="Refinement">
+    <qits-button variant="secondary" size="sm" [busy]="refining()" (pressed)="refine()">
+      Refine into prompt
+    </qits-button>
+    <qits-button variant="ghost" size="sm" (pressed)="useAsIs()">Use transcript as-is</qits-button>
+    <span class="note">A model rewrites what is above into a task prompt, or keep your words.</span>
+  </section>
+}
+
+@if (refineProblem(); as problem) {
+  <p class="problem" role="alert">⚠ {{ problem }}</p>
+}
+
+@if (picked.any()) {
+  <section class="context" aria-label="Picked context">
+    <h3>Picked context</h3>
+    <p class="note">Press a row to put it in the prompt. Anything left unpressed is appended on launch.</p>
+    <ul>
+      @for (reference of picked.references(); track label(reference); let index = $index) {
+        <li>
+          <button type="button" class="row" (click)="insertReference(index)">
+            <code>{{ label(reference) }}</code>
+            <span class="excerpt">{{ reference.excerpt }}</span>
+          </button>
+          <button
+            type="button"
+            class="drop"
+            [attr.aria-label]="'Remove ' + label(reference)"
+            (click)="picked.removeReference(label(reference))"
+          >
+            ✕
+          </button>
+        </li>
+      }
+      @for (element of picked.elements(); track element.selector; let index = $index) {
+        <li>
+          <button type="button" class="row" (click)="insertElement(index)">
+            <code>&lt;{{ element.tag }}&gt;</code>
+            <span class="excerpt">
+              {{ element.componentName ?? element.selector }} · {{ element.route }}
+            </span>
+          </button>
+          <button
+            type="button"
+            class="drop"
+            [attr.aria-label]="'Remove ' + element.selector"
+            (click)="picked.removeElement(element.selector)"
+          >
+            ✕
+          </button>
+        </li>
+      }
+    </ul>
+  </section>
+}
+
+<footer class="actions">
+  <qits-button
+    variant="primary"
+    [disabled]="!canLaunch()"
+    [busy]="launching()"
+    (pressed)="launchChat()"
+  >
+    Start the conversation
+  </qits-button>
+  <span class="state">{{ saveLabel() }}</span>
+</footer>
+
+@if (saveProblem(); as problem) {
+  <p class="problem" role="alert">⚠ {{ problem }}</p>
+}
+
+@if (launchProblem(); as problem) {
+  <p class="problem" role="alert">⚠ {{ problem }}</p>
+}
+
+<p class="note deferred">
+  The full agent TUI launches from the Agents tab, which is where a terminal session is rendered and
+  resumed.
+</p>

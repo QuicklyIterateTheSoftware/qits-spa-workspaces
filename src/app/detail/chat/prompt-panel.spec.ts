@@ -1,0 +1,389 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { EVENT_SOURCE_FACTORY, type EventSourceLike } from '../../api/event-source';
+import { WorkspaceEvents } from '../../api/workspace-events';
+import { PickedContext } from './picked-context';
+import { DRAFT_DEBOUNCE_MS, PromptPanel } from './prompt-panel';
+import { SPEECH_RUNTIME, type SpeechRuntime } from './speech-runtime';
+
+class FakeStream implements EventSourceLike {
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  readyState = 1;
+  close(): void {
+    this.readyState = 2;
+  }
+}
+
+/** Recording is unavailable here, which is the state jsdom would honestly report. */
+const NO_MICROPHONE: SpeechRuntime = {
+  supported: () => false,
+  capture: () => Promise.reject(new Error('no microphone in jsdom')),
+};
+
+@Component({
+  selector: 'app-panel-host',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [PromptPanel],
+  template: `<app-prompt-panel
+    [workspaceRowId]="workspaceRowId()"
+    [preamble]="preamble()"
+    (launched)="launched.set($event.id)"
+  />`,
+})
+class PanelHost {
+  readonly workspaceRowId = signal(7);
+  readonly preamble = signal<string | null>('Speed up the export');
+  readonly launched = signal<string | null>(null);
+}
+
+const DRAFT_URL = '/workspaces/api/workspaces/7/prompt-draft';
+
+/**
+ * The composition panel: what it reads, what it saves, and the one rule that must survive every
+ * later simplification.
+ *
+ * **On load this panel reads 1** — `GET /workspaces/api/workspaces/{id}/prompt-draft` — and a 404 is
+ * a state rather than a failure.
+ */
+describe('PromptPanel', () => {
+  let fixture: ComponentFixture<PanelHost>;
+  let host: PanelHost;
+  let http: HttpTestingController;
+  let events: WorkspaceEvents;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: EVENT_SOURCE_FACTORY, useValue: () => new FakeStream() },
+        { provide: SPEECH_RUNTIME, useValue: NO_MICROPHONE },
+      ],
+    });
+    fixture = TestBed.createComponent(PanelHost);
+    host = fixture.componentInstance;
+    http = TestBed.inject(HttpTestingController);
+    events = TestBed.inject(WorkspaceEvents);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const text = (): HTMLTextAreaElement =>
+    fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+
+  const type = (value: string) => {
+    const box = text();
+    box.value = value;
+    box.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+  };
+
+  /**
+   * Let the request chain land, then render.
+   *
+   * Several awaits deep: a client call goes through the daemon transport's reachability wrapper and
+   * then the panel's own handler, so one microtask turn regularly returns mid-chain.
+   */
+  const settle = async () => {
+    for (let turn = 0; turn < 8; turn++) {
+      await Promise.resolve();
+    }
+    fixture.detectChanges();
+  };
+
+  it('reads exactly one thing on load: the saved draft', async () => {
+    fixture.detectChanges();
+    const request = http.expectOne(DRAFT_URL);
+    expect(request.request.method).toBe('GET');
+    request.flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    http.verify();
+  });
+
+  it('says nothing about a draft that was never saved', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Restored draft');
+    expect(text().value).toBe('');
+  });
+
+  it('restores a saved draft and announces it with a way out', async () => {
+    // Cheap insurance against week-old context silently riding into a launch.
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({
+      draft: {
+        content: JSON.stringify({
+          text: 'last week’s idea',
+          references: [
+            { path: 'src/main.ts', startLine: 1, endLine: 2, excerpt: 'bootstrap();' },
+          ],
+          elements: [],
+        }),
+        updatedAt: '2026-08-01T09:00:00Z',
+      },
+    });
+    await settle();
+
+    expect(text().value).toBe('last week’s idea');
+    expect(fixture.nativeElement.textContent).toContain('Restored draft');
+    expect(TestBed.inject(PickedContext).references()).toHaveLength(1);
+  });
+
+  it('drops the restored hint on the first edit', async () => {
+    fixture.detectChanges();
+    http
+      .expectOne(DRAFT_URL)
+      .flush({ draft: { content: '{"text":"old"}', updatedAt: '2026-08-01T09:00:00Z' } });
+    await settle();
+    expect(fixture.nativeElement.textContent).toContain('Restored draft');
+
+    type('mine now');
+    expect(fixture.nativeElement.textContent).not.toContain('Restored draft');
+  });
+
+  it('saves on a debounce, not on a keystroke', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    type('a');
+    type('ab');
+    type('abc');
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS - 1);
+    http.expectNone(DRAFT_URL);
+
+    vi.advanceTimersByTime(1);
+    const save = http.expectOne(DRAFT_URL);
+    expect(save.request.method).toBe('PUT');
+    expect(save.request.body.serializedPrompt).toBe('abc');
+    expect(JSON.parse(save.request.body.content).text).toBe('abc');
+    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
+    await settle();
+  });
+
+  it('marks the draft dirty when a save fails, so the next edit retries', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    type('work');
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
+    http.expectOne(DRAFT_URL).flush({ message: 'too big' }, { status: 413, statusText: 'Payload Too Large' });
+    await settle();
+
+    expect(fixture.nativeElement.textContent).toContain('Not saved');
+    // The box still holds the work. Losing a keystroke to a 413 is not a thing a text box may do.
+    expect(text().value).toBe('work');
+  });
+
+  it('ignores its own prompt-draft echo, recognised by updatedAt', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    type('mine');
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
+    const save = http.expectOne(DRAFT_URL);
+    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
+    await settle();
+
+    // The save fires the hint. A blind refetch here would fight the box on every debounce.
+    events.invalidateAll();
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ draft: { content: '{"text":"mine"}', updatedAt: 'T1' } });
+    await settle();
+
+    expect(text().value).toBe('mine');
+  });
+
+  it('adopts another device’s save, but only when there is nothing local to lose', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    events.invalidateAll();
+    fixture.detectChanges();
+    http
+      .expectOne(DRAFT_URL)
+      .flush({ draft: { content: '{"text":"from the laptop"}', updatedAt: 'T9' } });
+    await settle();
+
+    expect(text().value).toBe('from the laptop');
+  });
+
+  it('does not refetch over an unsaved edit', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    type('half a sentence');
+    events.invalidateAll();
+    fixture.detectChanges();
+    http.expectNone((request) => request.method === 'GET' && request.url === DRAFT_URL);
+
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
+    const save = http.expectOne(DRAFT_URL);
+    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
+    await settle();
+  });
+
+  it('rewrites the box through the daemon on Refine, carrying the preamble', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    type('uh make the export thing go faster i guess');
+    press('Refine into prompt');
+    await settle();
+
+    const refine = http.expectOne('/workspaces/container/7/prompt-refinements');
+    expect(refine.request.body).toEqual({
+      transcript: 'uh make the export thing go faster i guess',
+      preamble: 'Speed up the export',
+    });
+    refine.flush({ prompt: 'Make the export faster.' });
+    await settle();
+
+    expect(text().value).toBe('Make the export faster.');
+    // The offer is spent: the text has been promoted.
+    expect(fixture.nativeElement.textContent).not.toContain('Refine into prompt');
+
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
+    const save = http.expectOne(DRAFT_URL);
+    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
+    await settle();
+  });
+
+  it('puts the offer away without a request on “Use transcript as-is”', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    type('say it exactly like this');
+    press('Use transcript as-is');
+    await settle();
+
+    expect(text().value).toBe('say it exactly like this');
+    expect(fixture.nativeElement.textContent).not.toContain('Refine into prompt');
+
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
+    const save = http.expectOne(DRAFT_URL);
+    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
+    await settle();
+  });
+
+  it('flushes the draft before it launches', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    type('build the thing');
+    // Deliberately inside the debounce window: the launch must not race it.
+    press('Start the conversation');
+    await settle();
+
+    const save = http.expectOne(DRAFT_URL);
+    expect(save.request.method).toBe('PUT');
+    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
+    await settle();
+
+    const launch = http.expectOne('/workspaces/container/7/agents');
+    expect(launch.request.body).toEqual({
+      scope: 'REPOSITORY',
+      mode: 'CHAT',
+      initialContext: 'build the thing',
+      deliverTaskPrompt: false,
+    });
+    launch.flush({ command: { id: 'cmd-9', kind: 'CHAT', status: 'RUNNING' } });
+    await settle();
+
+    expect(host.launched()).toBe('cmd-9');
+  });
+
+  it('aborts the launch when the flush fails, and says why', async () => {
+    // Launching with the wrong prompt is worse than not launching — and a draft that failed to save
+    // is work about to be lost.
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    type('build the thing');
+    press('Start the conversation');
+    await settle();
+
+    http
+      .expectOne(DRAFT_URL)
+      .flush({ message: 'nope' }, { status: 500, statusText: 'Server Error' });
+    await settle();
+
+    http.expectNone('/workspaces/container/7/agents');
+    expect(fixture.nativeElement.textContent).toContain('nothing was launched');
+    expect(host.launched()).toBeNull();
+  });
+
+  it('discards the draft, its picks and the hint together', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({
+      draft: {
+        content: JSON.stringify({
+          text: 'old',
+          references: [{ path: 'a.ts', startLine: 1, endLine: 1, excerpt: 'x' }],
+          elements: [],
+        }),
+        updatedAt: 'T0',
+      },
+    });
+    await settle();
+
+    press('Discard');
+    await settle();
+
+    const drop = http.expectOne(DRAFT_URL);
+    expect(drop.request.method).toBe('DELETE');
+    drop.flush(null, { status: 204, statusText: 'No Content' });
+    await settle();
+
+    expect(text().value).toBe('');
+    expect(TestBed.inject(PickedContext).references()).toHaveLength(0);
+    expect(fixture.nativeElement.textContent).not.toContain('Restored draft');
+  });
+
+  it('says dictation is unavailable rather than offering a button that cannot work', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    expect(fixture.nativeElement.textContent).toContain('cannot record audio');
+  });
+
+  it('will not launch an empty prompt', async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
+
+    press('Start the conversation');
+    await settle();
+    http.expectNone('/workspaces/container/7/agents');
+  });
+
+  function press(label: string): void {
+    const button = Array.from(
+      fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+    ).find((candidate) => candidate.textContent?.trim().startsWith(label));
+    if (!button) {
+      throw new Error(`No button reading "${label}"`);
+    }
+    button.click();
+    fixture.detectChanges();
+  }
+});

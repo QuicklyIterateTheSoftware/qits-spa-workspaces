@@ -1,0 +1,171 @@
+:host {
+  display: block;
+  padding: 0.75rem 0 1rem;
+}
+
+.restored {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px dashed #d1d5db;
+  border-radius: 0.35rem;
+  color: #6b7280;
+  font-size: 0.82rem;
+}
+
+.speech,
+.refine,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.speech {
+  margin-bottom: 0.5rem;
+}
+
+.refine {
+  margin-top: 0.5rem;
+}
+
+.actions {
+  margin-top: 0.85rem;
+}
+
+.note {
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
+.note.working {
+  color: #4f46e5;
+}
+
+.note.deferred {
+  margin: 1rem 0 0;
+  font-style: italic;
+}
+
+.box {
+  display: block;
+}
+
+.box textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.4rem;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #1f2937;
+  resize: vertical;
+}
+
+.box textarea:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 1px;
+  border-color: #4f46e5;
+}
+
+.context {
+  margin-top: 0.9rem;
+}
+
+.context h3 {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #4b5563;
+}
+
+.context ul {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.context li {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.row {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.3rem;
+  background: #f9fafb;
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+
+.row code {
+  color: #4338ca;
+  white-space: nowrap;
+}
+
+.excerpt {
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drop {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.3rem;
+  background: #fff;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0 0.45rem;
+  font-size: 0.75rem;
+}
+
+.drop:hover {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.state {
+  color: #9ca3af;
+  font-size: 0.78rem;
+}
+
+.problem {
+  margin: 0.5rem 0 0;
+  color: #b91c1c;
+  font-size: 0.84rem;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
