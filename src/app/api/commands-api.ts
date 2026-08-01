@@ -115,6 +115,51 @@ interface RefinementResponse {
   readonly prompt: string;
 }
 
+/**
+ * One action the checkout's `.qits-config.yml` declares, and therefore one thing `POST /commands`
+ * will accept.
+ *
+ * **There is no origin field, because there is only one origin.** The platform's globally defined
+ * "code actions" did not survive the split — the action tools never left the monolith — so the old
+ * `code` / `config` badge describes a distinction that no longer exists. Do not build it back.
+ *
+ * `interactive` says the run wants a PTY. It is a fact about the action, not a refusal: the launch
+ * is spawn-and-return either way, and the flag is what a caller reads before deciding to open a
+ * terminal socket for it.
+ */
+export interface ActionDto {
+  readonly id: string;
+  readonly name: string;
+  readonly interactive: boolean;
+}
+
+interface ActionListResponse {
+  readonly actions: readonly ActionDto[];
+}
+
+/** Which stream a captured line came from. `TRANSCRIPT` is an imported agent transcript. */
+export type LogChannel = 'STDIN' | 'OUTPUT' | 'STDERR' | 'TRANSCRIPT';
+
+/**
+ * One captured line of a command's output.
+ *
+ * `sequence` is the monotonic per-command ordinal assigned at capture, and it is the stable sort key
+ * — timestamps can tie. **`severity` is never set by this daemon**: the log service is wired with a
+ * null classifier, because pattern- and severity-based error detection was deleted upstream and is
+ * not coming back. It is absent from this type for that reason; a field nothing writes is not a
+ * field a reader should branch on.
+ */
+export interface CommandLogLineDto {
+  readonly sequence: number;
+  readonly channel: LogChannel;
+  readonly content: string;
+  readonly timestamp: string;
+}
+
+interface CommandLogResponse {
+  readonly lines: readonly CommandLogLineDto[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class CommandsApi {
   private readonly daemon = inject(WorkspaceDaemonApi);
@@ -134,6 +179,50 @@ export class CommandsApi {
   async commands(workspaceRowId: number): Promise<readonly CommandDto[]> {
     const answer = await this.daemon.get<CommandListResponse>(workspaceRowId, '/commands');
     return (answer.entries ?? []).map((entry) => entry.command);
+  }
+
+  /**
+   * What this checkout declares, in config order.
+   *
+   * On this client rather than one of its own because the surface is the same one: an action is what
+   * `POST /commands` accepts, the daemon files both under the same tag, and a separate client would
+   * buy a second file that has to move whenever this contract does.
+   */
+  async actions(workspaceRowId: number): Promise<readonly ActionDto[]> {
+    const answer = await this.daemon.get<ActionListResponse>(workspaceRowId, '/commands/actions');
+    return answer.actions ?? [];
+  }
+
+  /**
+   * Launch a declared action. Spawn-and-return, always.
+   *
+   * **There is no fire-and-await form on this API**, so no inline exit-code-and-stdout panel is
+   * possible: the `RunCommand`/`CommandChunk`/`CommandExit` triple exists only on the control
+   * socket, and the daemon's own comment says it wires no production caller. A config action
+   * therefore reports through the run history and its log like any other command, which is the
+   * whole of what this client can honestly offer.
+   */
+  async runAction(workspaceRowId: number, actionId: string): Promise<CommandDto> {
+    const answer = await this.daemon.post<CommandEnvelope>(workspaceRowId, '/commands', {
+      actionId,
+    });
+    return answer.command;
+  }
+
+  /**
+   * One command's captured lines, in order.
+   *
+   * Read **on demand**, when a history row is expanded, and never on load: it is the one request on
+   * the Actions tab that is proportional to what the user asks for rather than to what the tab
+   * shows. The daemon caps capture at 50,000 lines per command — heap in a container sized for the
+   * workspace's own build — so a very chatty command has lost its oldest lines before this is asked.
+   */
+  async log(workspaceRowId: number, commandId: string): Promise<readonly CommandLogLineDto[]> {
+    const answer = await this.daemon.get<CommandLogResponse>(
+      workspaceRowId,
+      `/commands/${encodeURIComponent(commandId)}/log`,
+    );
+    return answer.lines ?? [];
   }
 
   /**

@@ -4,17 +4,31 @@ import { firstValueFrom } from 'rxjs';
 import { QITS_API_BASE } from './api-base';
 import type {
   ActiveProcessResponse,
+  BootstrapRunDto,
+  BootstrapRunsResponse,
   ContainerProcessResponse,
   DiscardResponse,
   IntegrateResponse,
   MergeRequest,
   ReleaseResponse,
+  ServiceEventDto,
+  ServiceEventsResponse,
   WorkspaceDto,
   WorkspaceEntriesResponse,
   WorkspaceHistoryDetailDto,
   WorkspaceHistoryDetailResponse,
   WorkspaceResponse,
 } from './dto';
+
+/**
+ * One page of the service-event feed, which is what the panel shows.
+ *
+ * Twenty rather than the service's default fifty, because the feed is a recent-history strip under a
+ * list and not a log viewer. It is also the number the client-side row-id filter is applied *to* —
+ * see {@link WorkspacesApi.serviceEvents} — so a page that contains a recycled label's events shows
+ * fewer than twenty rows, and the feed says so rather than quietly looking short.
+ */
+export const SERVICE_EVENT_PAGE_SIZE = 20;
 
 /**
  * The calls this app makes against qits-workspaces: read a repository's workspaces, read one
@@ -189,6 +203,57 @@ export class WorkspacesApi {
         { result },
       ),
     );
+  }
+
+  /**
+   * One page of the durable service-event feed, newest first.
+   *
+   * **The server filters by the workspace *label*, and that is the trap this method exists to name.**
+   * `service_event.workspace_id` is the branch-derived string — unique only among ACTIVE workspaces
+   * and **reusable the moment one resolves** — so a workspace that inherits a retired name is served
+   * its predecessor's events by a filter that is behaving exactly as documented. There is no row-id
+   * parameter to ask for instead.
+   *
+   * So the narrowing happens twice: `repoId` and `workspaceId` go to the server because they cut the
+   * page down to something worth transferring, and the caller then keeps only the rows whose
+   * `workspaceRowId` is this workspace's. The DTO carries the row id for precisely this reason. That
+   * second filter is the caller's rather than this method's, because dropping rows silently inside a
+   * transport would hide the very ambiguity the panel has to report.
+   */
+  async serviceEvents(
+    repositoryId: string,
+    workspaceLabel: string,
+  ): Promise<readonly ServiceEventDto[]> {
+    const params = new HttpParams()
+      .set('repoId', repositoryId)
+      .set('workspaceId', workspaceLabel)
+      .set('pageSize', SERVICE_EVENT_PAGE_SIZE);
+    const response = await firstValueFrom(
+      this.http.get<ServiceEventsResponse>(`${this.base}/workspaces/api/service-events`, {
+        params,
+      }),
+    );
+    return response.events ?? [];
+  }
+
+  /**
+   * When each of this workspace's bootstrap steps last ran, and how it went.
+   *
+   * **Host-owned state, and not a forwarder.** The run *verbs* are the daemon's; this reads a host
+   * table that has to outlive the container, and it is the only place that table is readable from.
+   * The declared chain — what the steps *are* — comes from the daemon's own `GET /bootstrap-commands`
+   * and the two are joined on `bootstrapCommandId`.
+   *
+   * Empty rather than 404 when the chain has never run here: a freshly created workspace has no rows
+   * yet, and that is a state to render.
+   */
+  async bootstrapRuns(workspaceId: number): Promise<readonly BootstrapRunDto[]> {
+    const response = await firstValueFrom(
+      this.http.get<BootstrapRunsResponse>(
+        `${this.base}/workspaces/api/workspaces/${encodeURIComponent(workspaceId)}/bootstrap-runs`,
+      ),
+    );
+    return response.runs ?? [];
   }
 
   /**

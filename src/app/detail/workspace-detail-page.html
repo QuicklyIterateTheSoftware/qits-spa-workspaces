@@ -79,6 +79,20 @@
             <app-chat-panel [workspaceRowId]="ws.id" [preamble]="ws.preamble" />
           } @else if (tab.slug === 'files') {
             <app-files-panel [workspaceRowId]="ws.id" [visible]="selected() === 'files'" />
+          } @else if (tab.slug === 'services') {
+            <app-services-panel
+              [workspaceRowId]="ws.id"
+              [repositoryId]="repositoryId()"
+              [workspaceLabel]="ws.workspaceId"
+              [runtimeStatus]="ws.runtimeStatus"
+              [visible]="selected() === 'services'"
+            />
+          } @else if (tab.slug === 'actions') {
+            <app-actions-panel
+              [workspaceRowId]="ws.id"
+              [runtimeStatus]="ws.runtimeStatus"
+              [visible]="selected() === 'actions'"
+            />
           } @else {
             <app-panel-placeholder [title]="tab.label" [note]="panelNote(tab.slug)" />
           }
