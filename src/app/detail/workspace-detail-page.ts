@@ -23,6 +23,7 @@ import { IDLE, LOADING, failed, ready, type Loadable } from '../ui/loadable';
 import { ActionsPanel } from './actions/actions-panel';
 import { ActivityBar } from './activity-bar';
 import { AgentActivityMemory } from './agent-activity-memory';
+import { AgentsPanel } from './agents/agents-panel';
 import { ChatPanel } from './chat/chat-panel';
 import { FilesPanel } from './files/files-panel';
 import { PanelPlaceholder } from './panel-placeholder';
@@ -32,6 +33,7 @@ import { StatusStrip } from './status-strip';
 import { TabHost } from './tabs/tab-host';
 import { TabPanel } from './tabs/tab-panel';
 import { DEFAULT_TAB, DURABLE_TABS, STARTING_SLUG, isDurableTab, type TabDef } from './tabs/tabs';
+import { WebViewPanel } from './web-view/web-view-panel';
 
 /**
  * How long the transient tab stays after its operation finishes.
@@ -41,11 +43,14 @@ import { DEFAULT_TAB, DURABLE_TABS, STARTING_SLUG, isDurableTab, type TabDef } f
  */
 export const LINGER_MS = 5000;
 
-/** What each durable tab says while its panel is still to come. */
-const PANEL_NOTES: Readonly<Record<string, string>> = {
-  'web-view': 'The framed application lands next.',
-  agents: 'The embedded session, the session tree and the plugins land next.',
-};
+/**
+ * What each durable tab says while its panel is still to come.
+ *
+ * Empty now that every tab has one. Kept, because {@link WorkspaceDetailPage.panelNote} is what a
+ * tab added ahead of its panel falls back to, and a placeholder that names the surface is a better
+ * screen than an empty box.
+ */
+const PANEL_NOTES: Readonly<Record<string, string>> = {};
 
 /**
  * The room you sit in while a coding agent changes a workspace.
@@ -96,6 +101,7 @@ const PANEL_NOTES: Readonly<Record<string, string>> = {
   imports: [
     ActionsPanel,
     ActivityBar,
+    AgentsPanel,
     Async,
     ChatPanel,
     FilesPanel,
@@ -105,6 +111,7 @@ const PANEL_NOTES: Readonly<Record<string, string>> = {
     StatusStrip,
     TabHost,
     TabPanel,
+    WebViewPanel,
   ],
   templateUrl: './workspace-detail-page.html',
   styleUrl: './workspace-detail-page.css',

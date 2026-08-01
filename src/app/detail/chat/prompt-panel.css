@@ -157,6 +157,21 @@
   white-space: nowrap;
 }
 
+.open {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.3rem;
+  background: #fff;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0 0.45rem;
+  font-size: 0.75rem;
+}
+
+.open:hover {
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
 .drop {
   border: 1px solid #e5e7eb;
   border-radius: 0.3rem;

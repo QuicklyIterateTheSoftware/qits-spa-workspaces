@@ -12,6 +12,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import type { DetectionDto, FileListingDto } from '../../api/files-api';
 import { FilesApi } from '../../api/files-api';
+import { WorkspaceDetection } from '../../api/workspace-detection';
 import { WorkspaceEvents } from '../../api/workspace-events';
 import { Async } from '../../ui/async';
 import { Empty } from '../../ui/empty';
@@ -124,6 +125,7 @@ export interface FrameworkToggle {
 })
 export class FilesPanel {
   private readonly filesApi = inject(FilesApi);
+  private readonly shared = inject(WorkspaceDetection);
   private readonly events = inject(WorkspaceEvents);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -676,7 +678,12 @@ export class FilesPanel {
     }
     const detecting = this.filesApi
       .detection(workspaceRowId)
-      .then((detection) => this.incoming.set(detection))
+      .then((detection) => {
+        this.incoming.set(detection);
+        // Handed on so the Agents tab's plugin recommender never fetches this surface a second
+        // time. One entry, one read — the panel that owns the generation gate keeps owning it.
+        this.shared.publish(workspaceRowId, detection);
+      })
       .catch(() => undefined);
 
     this.listing.set(LOADING);

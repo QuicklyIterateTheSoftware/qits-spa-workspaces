@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
 import { EVENT_SOURCE_FACTORY, type EventSourceLike } from '../../api/event-source';
 import { WorkspaceEvents } from '../../api/workspace-events';
 import { PickedContext } from './picked-context';
@@ -61,6 +62,8 @@ describe('PromptPanel', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        // The reference row's jump is a URL write, like every other cross-tab jump on this page.
+        provideRouter([]),
         { provide: EVENT_SOURCE_FACTORY, useValue: () => new FakeStream() },
         { provide: SPEECH_RUNTIME, useValue: NO_MICROPHONE },
       ],
@@ -150,6 +153,33 @@ describe('PromptPanel', () => {
     expect(text().value).toBe('last week’s idea');
     expect(fixture.nativeElement.textContent).toContain('Restored draft');
     expect(TestBed.inject(PickedContext).references()).toHaveLength(1);
+  });
+
+  it('opens a picked reference in the viewer, at the lines it stands for', async () => {
+    // The designed consumer of the file browser's exact-range entry point: a row that could only be
+    // pasted into a prompt would make the user find the code again by hand.
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({
+      draft: {
+        content: JSON.stringify({
+          text: '',
+          references: [
+            { path: 'service/src/App.java', startLine: 12, endLine: 20, excerpt: 'run();' },
+          ],
+          elements: [],
+        }),
+        updatedAt: '2026-08-01T09:00:00Z',
+      },
+    });
+    await settle();
+
+    (fixture.nativeElement.querySelector('button.open') as HTMLButtonElement).click();
+    await settle();
+
+    const url = TestBed.inject(Router).url;
+    expect(url).toContain('tab=files');
+    expect(url).toContain('path=service%2Fsrc%2FApp.java');
+    expect(url).toContain('lines=12-20');
   });
 
   it('drops the restored hint on the first edit', async () => {

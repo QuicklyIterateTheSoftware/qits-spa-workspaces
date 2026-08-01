@@ -93,6 +93,14 @@
               [runtimeStatus]="ws.runtimeStatus"
               [visible]="selected() === 'actions'"
             />
+          } @else if (tab.slug === 'web-view') {
+            <app-web-view-panel [workspaceRowId]="ws.id" />
+          } @else if (tab.slug === 'agents') {
+            <app-agents-panel
+              [workspaceRowId]="ws.id"
+              [activity]="ws.agentActivity"
+              [visible]="selected() === 'agents'"
+            />
           } @else {
             <app-panel-placeholder [title]="tab.label" [note]="panelNote(tab.slug)" />
           }

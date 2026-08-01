@@ -93,6 +93,15 @@
           </button>
           <button
             type="button"
+            class="open"
+            [attr.aria-label]="'Open ' + label(reference)"
+            title="Open these lines in the Files tab"
+            (click)="showReference(index)"
+          >
+            ↗
+          </button>
+          <button
+            type="button"
             class="drop"
             [attr.aria-label]="'Remove ' + label(reference)"
             (click)="picked.removeReference(label(reference))"

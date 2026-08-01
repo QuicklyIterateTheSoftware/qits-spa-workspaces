@@ -16,6 +16,7 @@ import { PromptDraftApi } from '../../api/prompt-draft-api';
 import { SpeechApi } from '../../api/speech-api';
 import { WorkspaceEvents } from '../../api/workspace-events';
 import { relativeSince } from '../../ui/format';
+import { FileNavigation } from '../files/file-navigation';
 import { describeError } from '../../ui/loadable';
 import { LevelMeter } from './level-meter';
 import {
@@ -102,6 +103,7 @@ export class PromptPanel {
   private readonly speech = inject(SpeechApi);
   private readonly events = inject(WorkspaceEvents);
   protected readonly picked = inject(PickedContext);
+  private readonly nav = inject(FileNavigation);
 
   /** Which workspace's container to launch in, and whose draft to hold. */
   readonly workspaceRowId = input.required<number>();
@@ -270,6 +272,24 @@ export class PromptPanel {
     const reference = this.picked.references()[index];
     if (reference) {
       this.insert(referenceText(reference));
+    }
+  }
+
+  /**
+   * Open a picked reference in the viewer, at the lines it stands for.
+   *
+   * The designed consumer of the file browser's exact-range entry point, and it is one call: the
+   * jump is a URL write, so it switches tabs, opens the file and paints the range through the same
+   * path a pasted deep link takes. The chip is a link back to what it stands for — a row that could
+   * only be pasted into a prompt would make the user find the code again by hand.
+   */
+  protected showReference(index: number): void {
+    const reference = this.picked.references()[index];
+    if (reference) {
+      this.nav.openAt(reference.path, {
+        startLine: reference.startLine,
+        endLine: reference.endLine,
+      });
     }
   }
 
