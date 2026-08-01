@@ -32,12 +32,7 @@
         </span>
       }
       @if (live()) {
-        <qits-button
-          variant="ghost"
-          size="sm"
-          [busy]="terminating()"
-          (pressed)="terminate()"
-        >
+        <qits-button variant="ghost" size="sm" [busy]="terminating()" (pressed)="terminate()">
           Terminate
         </qits-button>
       }

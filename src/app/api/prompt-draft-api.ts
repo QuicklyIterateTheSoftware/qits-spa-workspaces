@@ -59,9 +59,7 @@ export class PromptDraftApi {
    */
   async draft(workspaceRowId: number): Promise<PromptDraftDto | null> {
     try {
-      const answer = await firstValueFrom(
-        this.http.get<DraftResponse>(this.url(workspaceRowId)),
-      );
+      const answer = await firstValueFrom(this.http.get<DraftResponse>(this.url(workspaceRowId)));
       return answer.draft ?? null;
     } catch (error) {
       if (isNotFound(error)) {
@@ -101,5 +99,7 @@ export class PromptDraftApi {
 }
 
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { status?: number }).status === 404;
+  return (
+    typeof error === 'object' && error !== null && (error as { status?: number }).status === 404
+  );
 }

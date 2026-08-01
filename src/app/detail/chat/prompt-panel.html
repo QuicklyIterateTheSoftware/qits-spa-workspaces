@@ -5,34 +5,72 @@
   </p>
 }
 
-<section class="speech" aria-label="Dictation">
-  @if (unsupported()) {
-    <p class="note">This browser cannot record audio, so dictation is not available here.</p>
-  } @else if (recording()) {
-    <qits-button variant="secondary" size="sm" (pressed)="stopRecording()">Stop</qits-button>
-    <app-level-meter [level]="level()" />
-    <span class="note">Speak — each pause is transcribed and added to the prompt.</span>
-  } @else {
-    <qits-button variant="ghost" size="sm" [busy]="starting()" (pressed)="record()">
-      Record
-    </qits-button>
-    <span class="note">Dictate the prompt instead of typing it.</span>
+<!--
+  The microphone is only the *first* of this box's two inputs. Refinement is a model call over a
+  textarea and works perfectly well on typed words, so a browser that cannot record loses the Record
+  button and nothing else — hiding the transcript with it would take away a working feature for an
+  unrelated reason.
+-->
+<section class="dictation" aria-label="Dictation">
+  <div class="speech">
+    @if (unsupported()) {
+      <span class="note">This browser cannot record audio — type the transcript instead.</span>
+    } @else if (recording()) {
+      <qits-button variant="secondary" size="sm" (pressed)="stopRecording()">Stop</qits-button>
+      <app-level-meter [level]="level()" />
+      <span class="note">Speak — each pause is transcribed and added below.</span>
+    } @else {
+      <qits-button variant="ghost" size="sm" [busy]="starting()" (pressed)="record()">
+        Record
+      </qits-button>
+      <span class="note">Dictate, then promote the transcript into the prompt.</span>
+    }
+
+    @if (transcribing() > 0) {
+      <span class="note working" role="status">
+        Transcribing {{ transcribing() }} clip{{ transcribing() === 1 ? '' : 's' }}…
+      </span>
+    }
+  </div>
+
+  @if (micProblem(); as problem) {
+    <p class="problem" role="alert">⚠ {{ problem }}</p>
   }
 
-  @if (transcribing() > 0) {
-    <span class="note working" role="status">
-      Transcribing {{ transcribing() }} clip{{ transcribing() === 1 ? '' : 's' }}…
-    </span>
+  <label class="box">
+    <span class="label">Transcript</span>
+    <textarea
+      class="transcript"
+      rows="4"
+      placeholder="Dictated words land here. Fix anything the recogniser got wrong before promoting it."
+      [value]="transcript()"
+      (input)="onDictate($any($event.target).value)"
+    ></textarea>
+  </label>
+
+  @if (canPromote()) {
+    <div class="promote">
+      <qits-button variant="secondary" size="sm" [busy]="refining()" (pressed)="refine()">
+        Refine into prompt
+      </qits-button>
+      <qits-button variant="ghost" size="sm" (pressed)="useAsIs()">
+        Use transcript as-is
+      </qits-button>
+      <span class="note"
+        >Either one moves it into the prompt below; refining rewrites it first.</span
+      >
+    </div>
+  }
+
+  @if (refineProblem(); as problem) {
+    <p class="problem" role="alert">⚠ {{ problem }}</p>
   }
 </section>
 
-@if (micProblem(); as problem) {
-  <p class="problem" role="alert">⚠ {{ problem }}</p>
-}
-
 <label class="box">
-  <span class="sr">The prompt</span>
+  <span class="label">The prompt</span>
   <textarea
+    class="prompt"
     rows="8"
     placeholder="Tell the agent what to change in this workspace."
     [value]="text()"
@@ -40,24 +78,12 @@
   ></textarea>
 </label>
 
-@if (offerRefine() && canRefine()) {
-  <section class="refine" aria-label="Refinement">
-    <qits-button variant="secondary" size="sm" [busy]="refining()" (pressed)="refine()">
-      Refine into prompt
-    </qits-button>
-    <qits-button variant="ghost" size="sm" (pressed)="useAsIs()">Use transcript as-is</qits-button>
-    <span class="note">A model rewrites what is above into a task prompt, or keep your words.</span>
-  </section>
-}
-
-@if (refineProblem(); as problem) {
-  <p class="problem" role="alert">⚠ {{ problem }}</p>
-}
-
 @if (picked.any()) {
   <section class="context" aria-label="Picked context">
     <h3>Picked context</h3>
-    <p class="note">Press a row to put it in the prompt. Anything left unpressed is appended on launch.</p>
+    <p class="note">
+      Press a row to put it in the prompt. Anything left unpressed is appended on launch.
+    </p>
     <ul>
       @for (reference of picked.references(); track label(reference); let index = $index) {
         <li>

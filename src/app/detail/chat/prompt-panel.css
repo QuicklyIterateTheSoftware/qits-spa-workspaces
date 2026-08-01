@@ -16,7 +16,7 @@
 }
 
 .speech,
-.refine,
+.promote,
 .actions {
   display: flex;
   align-items: center;
@@ -24,11 +24,17 @@
   flex-wrap: wrap;
 }
 
+.dictation {
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px dashed #e5e7eb;
+}
+
 .speech {
   margin-bottom: 0.5rem;
 }
 
-.refine {
+.promote {
   margin-top: 0.5rem;
 }
 
@@ -52,6 +58,22 @@
 
 .box {
   display: block;
+}
+
+/* The two boxes are the flow, so each says which it is rather than relying on order. */
+.label {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.box textarea.transcript {
+  background: #fafafa;
+  font-size: 0.88rem;
 }
 
 .box textarea {
@@ -159,13 +181,4 @@
   margin: 0.5rem 0 0;
   color: #b91c1c;
   font-size: 0.84rem;
-}
-
-.sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }

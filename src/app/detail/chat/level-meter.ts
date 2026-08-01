@@ -16,7 +16,14 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
   selector: 'app-level-meter',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="meter" role="meter" aria-label="Microphone input level" [attr.aria-valuenow]="percent()" aria-valuemin="0" aria-valuemax="100">
+    <div
+      class="meter"
+      role="meter"
+      aria-label="Microphone input level"
+      [attr.aria-valuenow]="percent()"
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
       @for (segment of segments; track segment) {
         <span class="seg" [class.lit]="segment <= lit()"></span>
       }
@@ -59,5 +66,7 @@ export class LevelMeter {
 
   protected readonly lit = computed(() => Math.round(Math.min(1, Math.max(0, this.level())) * 16));
 
-  protected readonly percent = computed(() => Math.round(Math.min(1, Math.max(0, this.level())) * 100));
+  protected readonly percent = computed(() =>
+    Math.round(Math.min(1, Math.max(0, this.level())) * 100),
+  );
 }

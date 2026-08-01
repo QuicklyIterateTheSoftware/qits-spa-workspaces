@@ -222,7 +222,7 @@ describe('ChatPanel', () => {
       .flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
     await settle();
 
-    const box = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    const box = fixture.nativeElement.querySelector('textarea.prompt') as HTMLTextAreaElement;
     box.value = 'build it';
     box.dispatchEvent(new Event('input'));
     fixture.detectChanges();
@@ -233,9 +233,7 @@ describe('ChatPanel', () => {
     save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
     await settle();
 
-    http
-      .expectOne('/workspaces/container/7/agents')
-      .flush({ command: chat('cmd-new', 'RUNNING') });
+    http.expectOne('/workspaces/container/7/agents').flush({ command: chat('cmd-new', 'RUNNING') });
     await settle();
 
     // The registry has not answered yet, and the conversation is already on screen.

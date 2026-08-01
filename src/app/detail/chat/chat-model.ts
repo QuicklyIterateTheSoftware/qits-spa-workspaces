@@ -15,7 +15,12 @@ export type ChatItem =
   | { readonly kind: 'user'; readonly text: string }
   | { readonly kind: 'assistant'; readonly text: string }
   | { readonly kind: 'thinking'; readonly text: string }
-  | { readonly kind: 'tool-call'; readonly toolUseId: string; readonly name: string; readonly input: string }
+  | {
+      readonly kind: 'tool-call';
+      readonly toolUseId: string;
+      readonly name: string;
+      readonly input: string;
+    }
   | {
       readonly kind: 'tool-result';
       readonly toolUseId: string;

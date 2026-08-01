@@ -13,7 +13,11 @@ const settle = async () => {
   }
 };
 
-const command = (id: string, kind: CommandDto['kind'], status: CommandDto['status']): CommandDto => ({
+const command = (
+  id: string,
+  kind: CommandDto['kind'],
+  status: CommandDto['status'],
+): CommandDto => ({
   id,
   repoId: 'r',
   workspaceId: 'w',

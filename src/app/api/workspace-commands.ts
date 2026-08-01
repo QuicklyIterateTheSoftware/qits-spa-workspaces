@@ -76,7 +76,9 @@ export class WorkspaceCommands {
     if (state.kind !== 'ready') {
       return null;
     }
-    return state.value.find((command) => command.kind === 'CHAT' && command.status === 'RUNNING') ?? null;
+    return (
+      state.value.find((command) => command.kind === 'CHAT' && command.status === 'RUNNING') ?? null
+    );
   });
 
   /** Whether the list has been read at all. `idle` is not "nothing running", it is "not asked". */

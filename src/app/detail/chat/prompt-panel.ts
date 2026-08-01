@@ -46,12 +46,28 @@ type SaveState = 'clean' | 'pending' | 'saving' | 'dirty';
  * composed here, which is a different screen from an empty one — it is why the restored-draft hint
  * can be honest.
  *
- * ## Four inputs, one draft
+ * ## Four inputs, two boxes, one draft
  *
- * Speech, refinement, picked context and typed text all feed the same box. The original kept the
- * transcript and the prompt in two boxes and promoted between them; there is one box here, and the
- * two promotion buttons act on it — "Refine into prompt" replaces its contents with the rewrite,
- * "Use transcript as-is" keeps what is there and puts the offer away.
+ * Speech, refinement, picked context and typed text all end up in one prompt, but they do not all
+ * write to the same place, and the split is the original's rather than an embellishment.
+ *
+ * **Dictation accumulates in its own transcript box.** Raw speech is not a prompt: it has false
+ * starts, self-corrections and misheard words in it, and a box you can read and fix before promoting
+ * is the difference between dictating and dictating-and-hoping. Nothing in the transcript is a draft
+ * — it is scratch, and it is not saved.
+ *
+ * **Two buttons promote it into the prompt box, and that is all either of them does.** "Refine into
+ * prompt" sends the transcript to the model that rewrites speech into a task prompt and puts the
+ * rewrite in the prompt box; "Use transcript as-is" puts the words there unchanged. They are the
+ * same gesture with and without a model call — which is why "as-is" needs no request and is not a
+ * dismissal.
+ *
+ * A promotion **appends** rather than replaces, and **empties the transcript**. Appending is the only
+ * reading that cannot silently destroy typed work; emptying is the only one where a second round of
+ * dictation does not promote the first round twice.
+ *
+ * **The prompt box is the draft.** It is what autosaves, what flushes, and what launches. The
+ * transcript participates in none of that, which is also why a reload does not bring it back.
  *
  * ## The draft is the one optimistic thing on the page
  *
@@ -96,15 +112,24 @@ export class PromptPanel {
   /** A chat was launched. The panel does not swap itself; the tab decides what it shows. */
   readonly launched = output<CommandDto>();
 
+  /** The prompt box: the draft, and the only thing that is saved, flushed or launched. */
   protected readonly text = signal('');
+
+  /**
+   * The transcript box: what has been dictated, and nothing else.
+   *
+   * Deliberately not part of the draft. The composition blob's schema is prompt text, picked
+   * snippets, code references and attachment ids — a half-dictated sentence is not work product,
+   * and persisting it would make a restored draft offer back words the user already decided against.
+   */
+  protected readonly transcript = signal('');
+
   protected readonly save = signal<SaveState>('clean');
   protected readonly saveProblem = signal<string | null>(null);
 
   /** The draft that was on the server when this panel opened, if any. */
   protected readonly restoredAt = signal<string | null>(null);
 
-  /** Whether the refinement offer is still on the table. "Use as-is" is what takes it off. */
-  protected readonly offerRefine = signal(true);
   protected readonly refining = signal(false);
   protected readonly refineProblem = signal<string | null>(null);
 
@@ -194,8 +219,9 @@ export class PromptPanel {
     () => this.composed().length > 0 && !this.launching() && !this.recording(),
   );
 
-  protected readonly canRefine = computed(
-    () => this.text().trim().length > 0 && !this.refining() && !this.recording(),
+  /** Whether there is a transcript to promote. Both buttons appear and vanish together. */
+  protected readonly canPromote = computed(
+    () => this.transcript().trim().length > 0 && !this.refining(),
   );
 
   protected label(reference: CodeReference): string {
@@ -229,9 +255,15 @@ export class PromptPanel {
   protected onType(value: string): void {
     this.text.set(value);
     // The hint is about the draft that was found, and the first edit is the moment it stops being
-    // someone else's work and becomes yours.
+    // someone else's work and becomes yours. Dictating does not count: the transcript is not the
+    // draft, so it has not yet touched what the hint is about.
     this.restoredAt.set(null);
     this.scheduleSave();
+  }
+
+  protected onDictate(value: string): void {
+    // No save, no hint, no debounce. The transcript is scratch until it is promoted.
+    this.transcript.set(value);
   }
 
   protected insertReference(index: number): void {
@@ -249,13 +281,26 @@ export class PromptPanel {
   }
 
   private insert(fragment: string): void {
-    this.text.update((current) => (current.trim() ? `${current.trimEnd()}\n\n${fragment}` : fragment));
-    this.scheduleSave();
+    this.append(fragment, '\n\n');
   }
 
+  /** One recognised utterance, onto the end of the transcript. Sentences, so a space joins them. */
   private appendUtterance(utterance: string): void {
-    this.text.update((current) => (current.trim() ? `${current.trimEnd()} ${utterance}` : utterance));
-    this.offerRefine.set(true);
+    this.transcript.update((current) =>
+      current.trim() ? `${current.trimEnd()} ${utterance}` : utterance,
+    );
+  }
+
+  /**
+   * Put text in the prompt box, which is a draft edit like any other.
+   *
+   * Appending rather than replacing is the whole of the safety here: a promotion arriving on top of
+   * something the user typed must not be the way that typing disappears.
+   */
+  private append(fragment: string, separator: string): void {
+    this.text.update((current) =>
+      current.trim() ? `${current.trimEnd()}${separator}${fragment}` : fragment,
+    );
     this.restoredAt.set(null);
     this.scheduleSave();
   }
@@ -268,21 +313,20 @@ export class PromptPanel {
 
   protected async stopRecording(): Promise<void> {
     await this.recorder.stop();
-    await this.flush();
   }
 
-  // ---- refinement -------------------------------------------------------------------------------
+  // ---- promotion --------------------------------------------------------------------------------
 
   /**
-   * Rewrite what is in the box into a prompt.
+   * Rewrite the transcript into a prompt, and put the rewrite in the prompt box.
    *
-   * The transcript is whatever the box holds — dictated, typed, or both — because the model that
-   * does this was written for exactly that: fixing recognition artifacts and false starts while
-   * preserving every technical detail. Sending a hand-typed prompt through it is harmless and
-   * sometimes useful; it is one button and the user decides.
+   * One model call over the harness already installed in this container, and its meta-prompt says
+   * exactly what it is for: fix speech-recognition artifacts, misheard words, filler, false starts
+   * and self-corrections, preserve every technical detail, invent nothing. The transcript stays put
+   * if the call fails — losing dictation to a failed rewrite would be the worst trade on the panel.
    */
   protected async refine(): Promise<void> {
-    const transcript = this.text().trim();
+    const transcript = this.transcript().trim();
     if (!transcript) {
       return;
     }
@@ -294,9 +338,7 @@ export class PromptPanel {
         transcript,
         this.preamble(),
       );
-      this.text.set(prompt);
-      this.offerRefine.set(false);
-      this.scheduleSave();
+      this.promote(prompt);
     } catch (error) {
       this.refineProblem.set(`The rewrite did not happen — ${describeError(error)}.`);
     } finally {
@@ -304,10 +346,20 @@ export class PromptPanel {
     }
   }
 
-  /** Keep the words as spoken. No request, no change — just the offer put away. */
+  /** Promote the words exactly as spoken. The same gesture as Refine, without the model call. */
   protected useAsIs(): void {
-    this.offerRefine.set(false);
+    const transcript = this.transcript().trim();
+    if (!transcript) {
+      return;
+    }
     this.refineProblem.set(null);
+    this.promote(transcript);
+  }
+
+  /** Move the transcript into the prompt box: append there, empty here. */
+  private promote(prompt: string): void {
+    this.append(prompt.trim(), '\n\n');
+    this.transcript.set('');
   }
 
   // ---- the draft --------------------------------------------------------------------------------

@@ -30,7 +30,10 @@ describe('buildConversation', () => {
     // are the user speaking.
     const conversation = buildConversation([
       line({ type: 'user', text: 'add a health check' }),
-      line({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'and a test' }] } }),
+      line({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'text', text: 'and a test' }] },
+      }),
     ]);
 
     expect(conversation.items).toEqual([
@@ -69,7 +72,10 @@ describe('buildConversation', () => {
 
   it('flattens a tool result that arrives as content blocks rather than a string', () => {
     const conversation = buildConversation([
-      toolResult('toolu_1', [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }]),
+      toolResult('toolu_1', [
+        { type: 'text', text: 'first' },
+        { type: 'text', text: 'second' },
+      ]),
     ]);
 
     expect(conversation.items[0]).toMatchObject({ text: 'first\nsecond', truncatedFrom: null });

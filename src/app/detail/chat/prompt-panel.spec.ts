@@ -75,15 +75,23 @@ describe('PromptPanel', () => {
     vi.useRealTimers();
   });
 
+  /** The prompt box: the draft, and the only thing saved, flushed or launched. */
   const text = (): HTMLTextAreaElement =>
-    fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    fixture.nativeElement.querySelector('textarea.prompt') as HTMLTextAreaElement;
 
-  const type = (value: string) => {
-    const box = text();
+  /** The transcript box: what has been dictated, and nothing else. */
+  const transcript = (): HTMLTextAreaElement =>
+    fixture.nativeElement.querySelector('textarea.transcript') as HTMLTextAreaElement;
+
+  const into = (box: HTMLTextAreaElement, value: string) => {
     box.value = value;
     box.dispatchEvent(new Event('input'));
     fixture.detectChanges();
   };
+
+  const type = (value: string) => into(text(), value);
+
+  const dictate = (value: string) => into(transcript(), value);
 
   /**
    * Let the request chain land, then render.
@@ -96,6 +104,13 @@ describe('PromptPanel', () => {
       await Promise.resolve();
     }
     fixture.detectChanges();
+  };
+
+  /** Open the panel and answer its one read with "never saved". */
+  const opened = async () => {
+    fixture.detectChanges();
+    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+    await settle();
   };
 
   it('reads exactly one thing on load: the saved draft', async () => {
@@ -124,9 +139,7 @@ describe('PromptPanel', () => {
       draft: {
         content: JSON.stringify({
           text: 'last week’s idea',
-          references: [
-            { path: 'src/main.ts', startLine: 1, endLine: 2, excerpt: 'bootstrap();' },
-          ],
+          references: [{ path: 'src/main.ts', startLine: 1, endLine: 2, excerpt: 'bootstrap();' }],
           elements: [],
         }),
         updatedAt: '2026-08-01T09:00:00Z',
@@ -178,7 +191,9 @@ describe('PromptPanel', () => {
 
     type('work');
     vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
-    http.expectOne(DRAFT_URL).flush({ message: 'too big' }, { status: 413, statusText: 'Payload Too Large' });
+    http
+      .expectOne(DRAFT_URL)
+      .flush({ message: 'too big' }, { status: 413, statusText: 'Payload Too Large' });
     await settle();
 
     expect(fixture.nativeElement.textContent).toContain('Not saved');
@@ -237,12 +252,25 @@ describe('PromptPanel', () => {
     await settle();
   });
 
-  it('rewrites the box through the daemon on Refine, carrying the preamble', async () => {
-    fixture.detectChanges();
-    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
-    await settle();
+  it('offers nothing to promote until something has been dictated', async () => {
+    await opened();
 
-    type('uh make the export thing go faster i guess');
+    expect(fixture.nativeElement.textContent).not.toContain('Refine into prompt');
+    expect(fixture.nativeElement.textContent).not.toContain('Use transcript as-is');
+
+    dictate('some words');
+    expect(fixture.nativeElement.textContent).toContain('Refine into prompt');
+    expect(fixture.nativeElement.textContent).toContain('Use transcript as-is');
+  });
+
+  it('refines the transcript into the prompt box, carrying the preamble', async () => {
+    await opened();
+
+    dictate('uh make the export thing go faster i guess');
+    // Typing into the transcript is not a draft edit: no debounce is armed by it.
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS * 2);
+    http.expectNone(DRAFT_URL);
+
     press('Refine into prompt');
     await settle();
 
@@ -255,8 +283,27 @@ describe('PromptPanel', () => {
     await settle();
 
     expect(text().value).toBe('Make the export faster.');
-    // The offer is spent: the text has been promoted.
-    expect(fixture.nativeElement.textContent).not.toContain('Refine into prompt');
+    // Promoting moves it: a second round of dictation must not promote the first round again.
+    expect(transcript().value).toBe('');
+
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
+    const save = http.expectOne(DRAFT_URL);
+    expect(save.request.body.serializedPrompt).toBe('Make the export faster.');
+    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
+    await settle();
+  });
+
+  it('promotes the words verbatim on “Use transcript as-is”, with no request', async () => {
+    // The same gesture as Refine, without the model call — not a dismissal.
+    await opened();
+
+    dictate('say it exactly like this');
+    press('Use transcript as-is');
+    await settle();
+
+    http.expectNone('/workspaces/container/7/prompt-refinements');
+    expect(text().value).toBe('say it exactly like this');
+    expect(transcript().value).toBe('');
 
     vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
     const save = http.expectOne(DRAFT_URL);
@@ -264,22 +311,55 @@ describe('PromptPanel', () => {
     await settle();
   });
 
-  it('puts the offer away without a request on “Use transcript as-is”', async () => {
-    fixture.detectChanges();
-    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
+  it('appends a promotion rather than replacing what was typed', async () => {
+    // A promotion arriving on top of typed work must not be how that work disappears.
+    await opened();
+
+    type('first, the context');
+    vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
+    let save = http.expectOne(DRAFT_URL);
+    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
     await settle();
 
-    type('say it exactly like this');
+    dictate('and then the dictated part');
     press('Use transcript as-is');
     await settle();
 
-    expect(text().value).toBe('say it exactly like this');
-    expect(fixture.nativeElement.textContent).not.toContain('Refine into prompt');
+    expect(text().value).toBe('first, the context\n\nand then the dictated part');
 
     vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
-    const save = http.expectOne(DRAFT_URL);
-    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T1' } });
+    save = http.expectOne(DRAFT_URL);
+    save.flush({ draft: { content: save.request.body.content, updatedAt: 'T2' } });
     await settle();
+  });
+
+  it('keeps the transcript when the rewrite fails', async () => {
+    // Losing dictation to a failed model call would be the worst trade on the panel.
+    await opened();
+
+    dictate('the words');
+    press('Refine into prompt');
+    await settle();
+
+    http
+      .expectOne('/workspaces/container/7/prompt-refinements')
+      .flush({ message: 'no harness' }, { status: 503, statusText: 'Service Unavailable' });
+    await settle();
+
+    expect(transcript().value).toBe('the words');
+    expect(text().value).toBe('');
+    expect(fixture.nativeElement.textContent).toContain('The rewrite did not happen');
+  });
+
+  it('will not launch on a transcript that was never promoted', async () => {
+    // The prompt box is the draft. Dictating is not composing until it has been moved.
+    await opened();
+
+    dictate('never promoted');
+    press('Start the conversation');
+    await settle();
+
+    http.expectNone('/workspaces/container/7/agents');
   });
 
   it('flushes the draft before it launches', async () => {
@@ -358,12 +438,15 @@ describe('PromptPanel', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Restored draft');
   });
 
-  it('says dictation is unavailable rather than offering a button that cannot work', async () => {
-    fixture.detectChanges();
-    http.expectOne(DRAFT_URL).flush({ message: 'none' }, { status: 404, statusText: 'Not Found' });
-    await settle();
+  it('drops the Record button where recording is impossible, and keeps the rest', async () => {
+    // Refinement is a model call over a textarea. A browser with no microphone loses the microphone.
+    await opened();
 
     expect(fixture.nativeElement.textContent).toContain('cannot record audio');
+    expect(transcript()).not.toBeNull();
+
+    dictate('typed, not spoken');
+    expect(fixture.nativeElement.textContent).toContain('Refine into prompt');
   });
 
   it('will not launch an empty prompt', async () => {
