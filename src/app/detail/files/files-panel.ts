@@ -411,16 +411,39 @@ export class FilesPanel {
     previewOf(this.allPaths(), this.layers(), this.query()),
   );
 
-  protected readonly frameworkSets = computed<readonly GeneratedSet[]>(() =>
-    (this.held()?.frameworks ?? []).map((membership) => ({
-      id: membership.frameworkId,
-      name: membership.label,
-      on: this.activeFrameworks().has(membership.frameworkId),
-      note: `${membership.memberPaths.length} paths under ${membership.root || 'the root'}`,
-      rules: [`show · whitelist of ${membership.memberPaths.length} resolved member paths`],
-    })),
-  );
+  /**
+   * The framework rows in the dialog: one per *kind*, matching the footer.
+   *
+   * Two roots declaring the same framework are one toggle, so they must be one row — two rows over
+   * one switch would flip together and read as a bug in the checkbox.
+   */
+  protected readonly frameworkSets = computed<readonly GeneratedSet[]>(() => {
+    const byKind = new Map<string, { label: string; roots: string[]; members: number }>();
+    for (const membership of this.held()?.frameworks ?? []) {
+      const entry = byKind.get(membership.frameworkId) ?? {
+        label: membership.label,
+        roots: [],
+        members: 0,
+      };
+      entry.roots.push(membership.root || 'the root');
+      entry.members += membership.memberPaths.length;
+      byKind.set(membership.frameworkId, entry);
+    }
+    return [...byKind.entries()].map(([frameworkId, entry]) => ({
+      id: frameworkId,
+      name: entry.label,
+      on: this.activeFrameworks().has(frameworkId),
+      note: `${entry.members} paths under ${entry.roots.join(', ')}`,
+      rules: [`show · whitelist of ${entry.members} server-resolved member paths`],
+    }));
+  });
 
+  /**
+   * The ignore-list rows.
+   *
+   * A basename with no files in the tree is dropped, unless it is switched on — a toggle that
+   * vanishes when the tree changes under it would take its own state with it.
+   */
   protected readonly ignoreSets = computed<readonly GeneratedSet[]>(() =>
     IGNORE_BASENAMES.map((name) => {
       const sources = ignoreSources(this.allPaths(), name);
@@ -429,12 +452,13 @@ export class FilesPanel {
         id: name,
         name,
         on,
+        count: sources.length,
         note: `${sources.length} ${sources.length === 1 ? 'file' : 'files'} in the tree`,
         rules: on
           ? ignoreLayer(sources, this.ignoreText()).map((rule) => `${rule.mode} · ${rule.label}`)
           : [],
       };
-    }).filter((set) => set.note !== '0 files in the tree' || set.on),
+    }).filter((set) => set.count > 0 || set.on),
   );
 
   /** The ranges picked in the file that is open — the chips, and the paint. */
