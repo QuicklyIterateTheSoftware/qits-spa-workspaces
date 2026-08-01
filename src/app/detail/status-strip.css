@@ -1,0 +1,101 @@
+:host {
+  display: block;
+}
+
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0.75rem 1.25rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.field.wide {
+  grid-column: 1 / -1;
+}
+
+.key {
+  color: #6b7280;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.value {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-size: 0.88rem;
+}
+
+.verbs {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.discard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 34rem;
+}
+
+.field-label {
+  color: #374151;
+  font-size: 0.85rem;
+}
+
+textarea {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.3rem;
+  font: inherit;
+  font-size: 0.88rem;
+  resize: vertical;
+}
+
+.note {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
+.muted {
+  color: #6b7280;
+}
+
+.fault {
+  color: #b91c1c;
+  overflow-wrap: anywhere;
+}
+
+.stale {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+}

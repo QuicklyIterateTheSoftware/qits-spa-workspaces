@@ -90,6 +90,11 @@
         @for (workspace of workspaceList(); track workspace.id) {
           <li>
             <app-workspace-row [workspace]="workspace">
+              <a
+                class="open"
+                [routerLink]="['/repositories', selectedRepositoryId(), 'workspaces', workspace.id]"
+                >Open this workspace</a
+              >
               <app-merge-panel
                 [workspace]="workspace"
                 [mainBranch]="mainBranch()"

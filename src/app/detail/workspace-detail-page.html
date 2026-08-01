@@ -1,0 +1,125 @@
+@if (mounted()) {
+  <app-async
+    [state]="repository()"
+    loadingLabel="Loading the repository"
+    errorLabel="Could not load the repository"
+    (retry)="reload()"
+  />
+
+  <app-async
+    [state]="workspaces()"
+    loadingLabel="Loading workspace"
+    errorLabel="Could not load the workspace"
+    (retry)="reload()"
+  />
+
+  @if (workspace(); as ws) {
+    <header class="head">
+      <h1>{{ ws.workspaceId }}</h1>
+      <p class="meta">
+        <code>{{ ws.branch ?? ws.workspaceId }}</code>
+        @if (ws.parent) {
+          <span class="sep">·</span>
+          <span
+            >forked from <code>{{ ws.parent }}</code></span
+          >
+        }
+      </p>
+      @if (ws.preamble) {
+        <p class="preamble">{{ ws.preamble }}</p>
+      }
+    </header>
+
+    <app-status-strip
+      [workspace]="ws"
+      [mainBranch]="mainBranch()"
+      [reachability]="reachability()"
+      [live]="live()"
+      (changed)="onChanged()"
+      (started)="onStarted($event)"
+      (merged)="onMerged($event)"
+    />
+
+    @if (landed().length > 0) {
+      <section class="landed" aria-label="What landed from this page">
+        <ul>
+          @for (record of landed(); track record.commitSha) {
+            <li>
+              @if (record.version) {
+                <strong>{{ record.version }}</strong> —
+              }
+              <code>{{ record.branch }}</code> → <code>{{ record.targetBranch }}</code
+              >, merge commit <code>{{ record.commitSha }}</code>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    <app-activity-bar
+      [workspaces]="workspaceList()"
+      [currentId]="ws.id"
+      (open)="openWorkspace($event)"
+    />
+
+    <app-tab-host
+      [tabs]="tabs()"
+      [selected]="selected()"
+      label="Workspace"
+      (selectTab)="chooseTab($event)"
+    >
+      @if (shownProcessId(); as processId) {
+        <ng-template appTabPanel="starting">
+          <app-starting-panel [processId]="processId" (settled)="onSettled()" />
+        </ng-template>
+      }
+      @for (tab of durableTabs; track tab.slug) {
+        <ng-template [appTabPanel]="tab.slug">
+          <app-panel-placeholder [title]="tab.label" [note]="panelNote(tab.slug)" />
+        </ng-template>
+      }
+    </app-tab-host>
+  } @else if (missing()) {
+    <section class="resolved" aria-label="Resolved workspace">
+      <app-async
+        [state]="history()"
+        loadingLabel="Loading the history record"
+        errorLabel="Could not load the history record"
+        (retry)="loadHistory(workspaceId())"
+      />
+
+      @if (history(); as state) {
+        @if (state.kind === 'ready') {
+          <h1>{{ state.value.workspaceId }}</h1>
+          <p class="explain">
+            This workspace is {{ state.value.status.toLowerCase() }} — the work is finished, its
+            container is gone, and there is nothing live left to show. What remains is its history
+            record.
+          </p>
+          @if (state.value.result) {
+            <p class="result">{{ state.value.result }}</p>
+          }
+          <ol class="events">
+            @for (event of state.value.events; track event.at) {
+              <li>
+                <span class="type">{{ event.type.toLowerCase() }}</span>
+                <span class="at">{{ event.at }}</span>
+                @if (event.commit) {
+                  <code>{{ event.commit }}</code>
+                }
+                @if (event.note) {
+                  <span class="note">{{ event.note }}</span>
+                }
+              </li>
+            }
+          </ol>
+        } @else if (state.kind === 'error' && state.status === 404) {
+          <h1>No such workspace here</h1>
+          <p class="explain">
+            Nothing in <code>{{ repositoryId() }}</code> has that id, live or resolved.
+          </p>
+        }
+      }
+    </section>
+  }
+}

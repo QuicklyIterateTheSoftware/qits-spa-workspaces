@@ -28,8 +28,18 @@ export type WorkspaceStatus = 'ACTIVE' | 'INTEGRATED' | 'ABANDONED';
  */
 export type WorkspaceRuntimeStatus = 'RUNNING' | 'STOPPED' | 'PROVISIONING' | 'FAILED';
 
-/** The coding-agent activity rollup, as last reported by the in-container `workspace-daemon`. */
-export type AgentActivityState = 'IDLE' | 'BUSY' | 'WAITING';
+/**
+ * The coding-agent activity rollup, as last reported by the in-container `workspace-daemon`.
+ *
+ * **`ENDED` is here before the host can send it, deliberately.** The registry evicts a workspace's
+ * entry the moment a session ends, so the rollup answers `BUSY | WAITING | IDLE` or null today and
+ * `ENDED` never arrives. It is declared anyway because the activity bar's whole ordering rule — a
+ * session that has just stopped bubbles to the far left, since that is the workspace wanting your
+ * next prompt — is decoration without it. The host change that stops the eviction is in flight; a
+ * client that already renders the value needs no second pass when it lands, and until then the
+ * branch is simply never taken.
+ */
+export type AgentActivityState = 'IDLE' | 'BUSY' | 'WAITING' | 'ENDED';
 
 /**
  * One workspace, as qits-workspaces lists it.
@@ -69,6 +79,113 @@ export interface WorkspaceDto {
 export interface WorkspaceEntriesResponse {
   readonly entries: readonly { readonly workspace: WorkspaceDto }[];
 }
+
+/**
+ * What the single-workspace read answers.
+ *
+ * **This endpoint is not deployed yet** — `GET /workspaces/api/workspaces/{id}` answers 404 on the
+ * platform as this is written, and lands with the host workstream running beside this one. The
+ * shape is frozen in the plan, so the client is written to it and asserted against a mock; nothing
+ * on the detail shell depends on it, because the shell reads the repository-scoped list it needs
+ * for the activity bar anyway and finds itself in it.
+ */
+export interface WorkspaceResponse {
+  readonly workspace: WorkspaceDto;
+}
+
+/**
+ * The workspace's currently-running technical process, or null when nothing is running.
+ *
+ * This is the Starting tab's discovery lookup: an id here means "open the payload-bearing stream at
+ * `/technical-processes/{id}/events`", and null means the transient tab is simply not present.
+ */
+export interface ActiveProcessResponse {
+  readonly technicalProcessId: string | null;
+}
+
+/**
+ * What `ensure-container` and `recreate-container` answer: the workspace as it now stands, plus the
+ * process that is doing the work.
+ *
+ * The two verbs differ in what they do and not in what they return, which is why one type covers
+ * both. The process id is what the Starting tab attaches to without waiting for the `process` hint
+ * to come round.
+ */
+export interface ContainerProcessResponse {
+  readonly workspace: WorkspaceDto;
+  readonly technicalProcessId: string | null;
+}
+
+/** What `discard` answers. One boolean, and the workspace is resolved by the time it arrives. */
+export interface DiscardResponse {
+  readonly success: boolean;
+}
+
+/** One entry in a resolved workspace's narrative: what happened to the branch, and when. */
+export interface WorkspaceHistoryEventDto {
+  readonly type: string;
+  readonly branch: string | null;
+  readonly parent: string | null;
+  readonly target: string | null;
+  readonly commit: string | null;
+  readonly note: string | null;
+  readonly at: string;
+}
+
+/**
+ * A resolved workspace, as the history surface serves it.
+ *
+ * It is the narrative record and **not** a detail view's data: there is no branch state, no runtime
+ * status, no clean flag and no daemon. `commands` is always empty — the host's command-history port
+ * has no implementation anywhere — so it is declared and never drawn.
+ */
+export interface WorkspaceHistoryDetailDto {
+  readonly id: number;
+  readonly workspaceId: string;
+  readonly parent: string | null;
+  readonly status: WorkspaceStatus;
+  readonly preamble: string | null;
+  readonly result: string | null;
+  readonly createdAt: string;
+  readonly resolvedAt: string | null;
+  readonly events: readonly WorkspaceHistoryEventDto[];
+}
+
+/** The history read's envelope. */
+export interface WorkspaceHistoryDetailResponse {
+  readonly workspace: WorkspaceHistoryDetailDto;
+}
+
+/**
+ * One frame of a technical process's replayable stream, copied field-for-field from
+ * `TechnicalProcessFrame`.
+ *
+ * Every field but `kind` and `seq` is nullable because one record carries five frame shapes.
+ * `segment` is null on `done` and `ping`; `line` is set only on `line`; `status` only on
+ * `segment-settled` and `done`; `hint`/`hintTarget` only on a *failed* settle.
+ *
+ * `seq` is per-subscription and a reconnect replays everything with fresh ordinals — so it orders
+ * one connection's frames and is never a resume token. The client rebuilds from scratch on every
+ * connect, which is the intended contract rather than a fallback.
+ */
+export interface TechnicalProcessFrame {
+  readonly segment: string | null;
+  readonly kind: 'segment-open' | 'line' | 'segment-settled' | 'done' | 'ping';
+  readonly seq: number;
+  readonly line: string | null;
+  readonly status: 'ok' | 'failed' | null;
+  readonly hint: string | null;
+  readonly hintTarget: string | null;
+}
+
+/**
+ * The one documented failure classification: the verb hit a remote's auth wall.
+ *
+ * `hintTarget` names the repository to sign into, and **for a submodule child that is not the root
+ * repository** — so a UI acting on it must use the target it is given rather than the workspace's
+ * own repository.
+ */
+export const HINT_REMOTE_AUTH = 'remote-auth';
 
 /**
  * What both `POST …/{id}/release` and `POST …/{id}/integrate` take. One field, and no target.
@@ -161,4 +278,16 @@ export interface RepositoryDto {
 /** projects' repository list envelope. */
 export interface RepositoryEntriesResponse {
   readonly entries: readonly { readonly repository: RepositoryDto }[];
+}
+
+/**
+ * One repository, read by id.
+ *
+ * The list page reaches a repository through its project, because a person picking one starts from
+ * the projects. The detail route has only the repository id in its URL and no project at all — so
+ * it reads the repository directly, which is one request instead of two and works on a deep link
+ * from anywhere.
+ */
+export interface RepositoryResponse {
+  readonly repository: RepositoryDto;
 }

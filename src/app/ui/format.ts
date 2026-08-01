@@ -19,6 +19,35 @@ export function shortSha(sha: string): string {
 }
 
 /**
+ * How long ago an instant was, in the coarsest unit that is still true: `4m ago`, `2h ago`,
+ * `3d ago`, and `just now` under a minute.
+ *
+ * Coarse on purpose. The one caller is the status strip's "the daemon has been connected since…",
+ * where the useful reading is "since this morning" or "since a moment ago" — a daemon that
+ * reconnected 40 seconds ago is a daemon that just reconnected, and a second-accurate number would
+ * invite a precision the value does not have.
+ *
+ * An unparseable timestamp answers {@link NONE} rather than `Invalid Date`.
+ */
+export function relativeSince(iso: string, now: Date = new Date()): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) {
+    return NONE;
+  }
+  const seconds = Math.max(0, Math.round((now.getTime() - then) / 1000));
+  if (seconds < 60) {
+    return 'just now';
+  }
+  if (seconds < 3600) {
+    return `${Math.floor(seconds / 60)}m ago`;
+  }
+  if (seconds < 86400) {
+    return `${Math.floor(seconds / 3600)}h ago`;
+  }
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+/**
  * `3 ahead · 1 behind`, or `up to date` — how far the branch has drifted from its parent.
  *
  * Null counts are unknown rather than zero (qits-workspaces answers null when it could not compute

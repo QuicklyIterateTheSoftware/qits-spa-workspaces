@@ -7,9 +7,9 @@
 # the bundle becomes deployable.
 #
 # The recipe below is qits-spa-home's, and that repo is where it is maintained; the two should keep
-# matching. The one deliberate divergence is lint: this repo carries no eslint.config.js and no
-# `lint` script, so there is no `npm run lint` between the install and the tests. Add both and the
-# line goes back in that slot.
+# matching. It matches in full again: this repository now carries an eslint.config.js and a `lint`
+# script, so `npm run lint` is back in its slot between the install and the tests. It runs before
+# them on purpose — a lint failure is cheaper to read than a test failure caused by the same typo.
 steps:
   - image: qits/build-images/node-base:latest
     timeout-seconds: 1800
@@ -54,6 +54,8 @@ steps:
       env npm_config_registry="$QITS_NPM_PROXY_URL" \
           "npm_config_@qits:registry=$QITS_NPM_REGISTRY_URL" \
           npm ci --no-audit --no-fund
+
+      npm run lint
 
       # The jsdom target. This image has no browser and CI is not the place to download one.
       npm run test

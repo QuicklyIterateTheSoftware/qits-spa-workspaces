@@ -1,0 +1,156 @@
+<div class="strip">
+  <section class="field" aria-label="Container">
+    <span class="key">Container</span>
+    <span class="value">
+      <qits-badge [label]="runtimeLabel()" [tone]="runtimeTone()" />
+      @if (workspace().runtimeError) {
+        <span class="fault" role="alert">{{ workspace().runtimeError }}</span>
+      }
+    </span>
+    <span class="verbs">
+      @if (running()) {
+        <qits-button
+          variant="secondary"
+          size="sm"
+          [busy]="pending() === 'stop'"
+          [disabled]="pending() !== null"
+          (pressed)="stop()"
+          >Stop</qits-button
+        >
+      } @else {
+        <qits-button
+          variant="secondary"
+          size="sm"
+          [busy]="pending() === 'start'"
+          [disabled]="pending() !== null"
+          (pressed)="start()"
+          >Start</qits-button
+        >
+      }
+      <qits-button
+        variant="ghost"
+        size="sm"
+        [busy]="pending() === 'recreate'"
+        [disabled]="pending() !== null || recreateBlocked() !== null"
+        [attr.title]="recreateBlocked()"
+        (pressed)="recreate()"
+        >Recreate</qits-button
+      >
+    </span>
+    @if (recreateBlocked()) {
+      <p class="note">{{ recreateBlocked() }}</p>
+    }
+  </section>
+
+  <section class="field" aria-label="Daemon">
+    <span class="key">Daemon</span>
+    <span class="value">
+      @switch (daemonState()) {
+        @case ('connected') {
+          <span
+            >connected {{ daemonSince() }}
+            @if (workspace().daemonVersion) {
+              , version <code>{{ workspace().daemonVersion }}</code>
+            }
+          </span>
+          @if (workspace().daemonOutdated) {
+            <qits-badge label="outdated" tone="warning" />
+          }
+        }
+        @case ('gone') {
+          <span class="fault" role="alert"
+            >Not connected. Files, terminals and the agent surface cannot work right now. It usually
+            comes back on its own.</span
+          >
+        }
+        @case ('not-running') {
+          <span class="muted">No container running, so there is no daemon to reach.</span>
+        }
+      }
+    </span>
+    @if (workspace().daemonOutdated) {
+      <p class="note">
+        This daemon is older than the platform expects. Recreating the container is the way to
+        replace it
+        @if (recreateBlocked()) {
+          , once the working tree is clean
+        }
+        .
+      </p>
+    }
+  </section>
+
+  <section class="field" aria-label="Working tree">
+    <span class="key">Working tree</span>
+    <span class="value">
+      <qits-badge [label]="cleanliness().label" [tone]="cleanliness().tone" />
+      @if (drift()) {
+        <span class="muted">{{ drift() }} on {{ workspace().parent ?? mainBranch() }}</span>
+      }
+      @if (workspace().conflictsWithParent) {
+        <qits-badge label="conflicts with parent" tone="warning" />
+      }
+    </span>
+  </section>
+
+  <section class="field wide" aria-label="Resolution">
+    <span class="key">Resolution</span>
+    <span class="value">
+      <qits-badge [label]="workspace().status.toLowerCase()" [tone]="'info'" />
+    </span>
+    <div class="home">
+      <app-merge-panel
+        [workspace]="workspace()"
+        [mainBranch]="mainBranch()"
+        (merged)="merged.emit($event)"
+        (refresh)="changed.emit()"
+      />
+      @if (discarding()) {
+        <div class="discard">
+          <label class="field-label" for="discard-note"
+            >Why is this being abandoned? It is the only record left afterwards.</label
+          >
+          <textarea
+            id="discard-note"
+            rows="3"
+            [value]="discardNote()"
+            (input)="noteTyped($event)"
+          ></textarea>
+          <span class="verbs">
+            <qits-button
+              variant="primary"
+              size="sm"
+              [busy]="pending() === 'discard'"
+              [disabled]="pending() !== null"
+              (pressed)="discard()"
+              >Discard this workspace</qits-button
+            >
+            <qits-button
+              variant="ghost"
+              size="sm"
+              [disabled]="pending() !== null"
+              (pressed)="cancelDiscard()"
+              >Cancel</qits-button
+            >
+          </span>
+        </div>
+      } @else {
+        <qits-button
+          variant="ghost"
+          size="sm"
+          [disabled]="pending() !== null"
+          (pressed)="openDiscard()"
+          >Discard…</qits-button
+        >
+      }
+    </div>
+  </section>
+
+  @if (failure()) {
+    <p class="fault" role="alert">That did not work — {{ failure() }}.</p>
+  }
+
+  @if (!live()) {
+    <p class="stale">Live updates are reconnecting — what is on screen may be a little behind.</p>
+  }
+</div>

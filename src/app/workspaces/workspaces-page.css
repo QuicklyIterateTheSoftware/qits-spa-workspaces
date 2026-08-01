@@ -93,3 +93,12 @@ code {
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
   font-size: 0.9em;
 }
+
+/* The way into the detail view. A link and not a button: it is a navigation, and it is worth
+   being able to open in a new tab. */
+.open {
+  display: inline-block;
+  margin-bottom: 0.4rem;
+  color: #1d4ed8;
+  font-size: 0.85rem;
+}

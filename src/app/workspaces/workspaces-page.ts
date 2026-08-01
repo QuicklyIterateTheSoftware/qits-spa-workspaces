@@ -7,7 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink, convertToParamMap } from '@angular/router';
 import { QitsButton } from '@qits/ui-components';
 import type { ProjectDto, RepositoryDto, WorkspaceDto } from '../api/dto';
 import { ProjectsApi } from '../api/projects-api';
@@ -44,11 +44,16 @@ export interface MergeRecord {
  * **Which door a row offers is the workspace's own business.** Release and integrate are two
  * processes, and the panel picks between them from the workspace's parent branch; the page hands it
  * the repository's default branch and nothing more.
+ *
+ * **Each row links into the detail view**, which is the page you sit on while an agent works. The
+ * link is built from the repository and the workspace's generated `id` — never its `workspaceId`
+ * label, which is unique only among the active workspaces of one repository and is handed out again
+ * once one resolves.
  */
 @Component({
   selector: 'app-workspaces-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Async, Empty, MergePanel, QitsButton, WorkspaceRow],
+  imports: [Async, Empty, MergePanel, QitsButton, RouterLink, WorkspaceRow],
   templateUrl: './workspaces-page.html',
   styleUrl: './workspaces-page.css',
 })

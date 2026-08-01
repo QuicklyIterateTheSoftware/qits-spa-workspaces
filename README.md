@@ -5,12 +5,80 @@ Served by qits-workspaces itself at `/workspaces/` through Quinoa; it ships no i
 
 - **`/workspaces/`** — a repository's live workspaces, each with the one action its branch calls
   for: **Release** or **Integrate**.
+- **`/workspaces/repositories/{repositoryId}/workspaces/{id}?tab=…`** — one workspace's detail view:
+  the room you sit in while a coding agent changes it.
 
 A repository has to be picked, and the reason is a service boundary rather than a screen someone
 wanted: qits-workspaces' listing takes a mandatory `repositoryId` and owns no repository listing of
 its own, so the picker is two reads against qits-projects. The choice rides in the query parameters
 (`/workspaces/?project=…&repository=…`), so a repository you work in every day is a bookmark and the
 back button means "the previous one".
+
+## The detail view
+
+The shell, so far: the header, the status strip, the activity bar, the tab row and its contract, the
+transient Starting tab, and the live channel. The six panels land one workstream each; each tab says
+which one until it does.
+
+**It reads three things and opens one stream.** The repository (for its default branch, which is
+what decides the door home), the repository's workspace list (one entry feeds the header, the strip
+**and** the activity bar), and the workspace's active technical process. Then one `EventSource` on
+`/workspaces/api/workspaces/{id}/events`. Nothing on the page polls: the channel carries payload-free
+topic names, each panel re-fetches through the ordinary REST endpoints when its topic ticks, and an
+idle workspace produces no traffic at all. A fourth read happens in exactly one case — the id is not
+in the active list, which means the work has resolved.
+
+**On every connect and every reconnect, everything is invalidated once.** There is no replay
+protocol, no `Last-Event-ID` and no resume token, because the server offers none; the browser's own
+reconnect handles the retry and one burst of requests closes the gap. It costs a duplicate burst on
+the very first connect and removes an entire class of bugs where the page is quietly wrong about
+something it stopped hearing.
+
+**Hidden tabs stay mounted.** A panel is created the first time its tab is selected and only hidden
+after that (`@if (latched)` inside a `[style.display]` wrapper), so a chat socket, a framed
+application, an open file and every scroll position survive a tab switch. Dragging a tab moves the
+button and nothing else, because the strip and the panel container are two loops with two orders —
+moving a panel in the document would reload its iframe. Tab order is per-session and deliberately not
+stored: it is device ergonomics, unlike the prompt draft, which is work product and lives on the
+server.
+
+**Which tab is open is a query parameter**, not a trailing path segment. A trailing segment would
+make a _workspace_ switch reuse the page too, which is a bug rather than a feature; `?tab=` keeps the
+path meaning "which workspace", makes a bare URL mean "no tab pinned" by simple absence, and keeps
+every tab a shareable link. An unknown slug is normalised away; a bare URL is never filled in. A
+workspace change is still a path change under one route config, so the page carries an explicit
+remount guard.
+
+**The status strip is where the state and the verbs live.** Runtime state and its error, the daemon's
+connection, version and outdated warning, clean/dirty, ahead/behind, and the resolution — every field
+was already on the wire and the old screen ignored all of them. Start, Stop and Recreate sit next to
+the runtime state; the one door home and Discard sit next to the resolution. Two rules are load-bearing:
+
+- **Recreate is disabled unless the tree is provably clean.** The service refuses with a 400
+  otherwise, and `clean: null` — what a workspace with no live daemon reports — counts as not clean.
+  That combination is the point: recreate is the remedy for an outdated daemon, and an outdated daemon
+  is often a disconnected one.
+- **A missing daemon is a sentence, not seven 502s.** The reverse tunnel made the daemon's control
+  socket load-bearing for the container proxy, so a blip takes the file browser, every terminal and
+  the whole agent surface down at once. A dropped _hint channel_ is a different size of problem and
+  gets a quiet inline marker instead: the page is briefly behind and will catch up.
+
+**The activity bar sorts by recency, and that is its whole point.** Buttons order by when each
+workspace's agent activity last changed, most recent first, ties by id — so a session that has just
+stopped sorts to the far left, which is exactly the workspace waiting for your next prompt. The
+timestamps are client-side memory held at application scope; page-scoped memory would re-shuffle the
+row every time you clicked one of its own buttons.
+
+**The browser talks to the in-container daemon directly**, through the verbatim proxy at
+`/workspaces/container/{id}/*`, with hand-written typed clients. The proxy rewrites no path and sets
+the daemon's bearer itself, and the SPA is same-origin with it, so the gateway session cookie is the
+whole auth story. The line that settles it: _the proxy carries everything the daemon owns, the host
+serves only what the host owns, and nothing forwards._ `WorkspaceDaemonApi` is the transport; each
+panel's typed client is written against the daemon's own contract by the workstream that needs it.
+
+**A resolved workspace does not get a detail view.** It is not in the active list, its container is
+gone, and the history record has no branch state, no runtime and no commands — six tabs that all 502
+would be worse than an honest record, which is what the page shows instead.
 
 ## Releasing and integrating
 

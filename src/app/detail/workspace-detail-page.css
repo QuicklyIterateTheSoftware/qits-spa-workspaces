@@ -1,0 +1,76 @@
+:host {
+  display: block;
+}
+
+.head h1 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.meta {
+  margin: 0.15rem 0 0;
+  color: #6b7280;
+  font-size: 0.88rem;
+}
+
+.sep {
+  margin: 0 0.35rem;
+}
+
+.preamble {
+  margin: 0.4rem 0 0;
+  color: #374151;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.landed {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+}
+
+.landed ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.resolved h1 {
+  margin: 0.5rem 0 0;
+  font-size: 1.25rem;
+}
+
+.explain {
+  margin: 0.3rem 0 0;
+  color: #6b7280;
+  max-width: 44rem;
+}
+
+.result {
+  margin: 0.6rem 0 0;
+  color: #374151;
+  overflow-wrap: anywhere;
+}
+
+.events {
+  margin: 0.75rem 0 0;
+  padding-left: 1.1rem;
+  color: #374151;
+  font-size: 0.86rem;
+}
+
+.events li {
+  margin: 0.15rem 0;
+}
+
+.events .type {
+  font-weight: 600;
+}
+
+.events .at {
+  margin: 0 0.4rem;
+  color: #6b7280;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+}
