@@ -4,28 +4,30 @@ import { provideLocationMocks } from '@angular/common/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { routes } from '../app.routes';
 import type { WorkspaceDto } from '../api/dto';
+import { routes } from '../app.routes';
 
 /**
- * The page's states, driven through `HttpTestingController` and the real router.
+ * The overview, driven through `HttpTestingController` and the real router.
  *
- * Two assertions carry more than their length. **Nothing is requested from qits-workspaces until a
- * repository is resolved**, because its listing takes a mandatory `repositoryId` and a speculative
- * call would be a guaranteed 4xx per page load. And **what landed survives the reload that removes
- * the workspace** — a merge resolves the workspace, so the very next listing does not contain it,
- * and a success surface living in that row would take the version and the merge sha off screen a
- * few hundred milliseconds after producing them. Those strings are the whole output of the action.
+ * Three assertions carry more than their length. **A repository that is still loading does not hold
+ * up the one beside it** — the workspace listing refreshes a mirror and asks docker what is running,
+ * so a page-wide barrier would make the page only ever as fast as its worst repository. **The create
+ * body is frozen**, because `adoptExisting`, the derived label and the parent branch are the whole
+ * of what that one press means, and a wrong one of them either forks a branch nobody asked for or
+ * is refused outright. And **only the repository that was created in is re-read**, since the
+ * expensive call is exactly the one a page-wide refresh would issue once per repository.
  */
 describe('WorkspacesPage', () => {
   let http: HttpTestingController;
   let harness: RouterTestingHarness;
 
   const PROJECTS_URL = '/projects/api/projects';
-  const REPOSITORIES_URL = '/projects/api/projects/p1/repositories';
   const WORKSPACES_URL = '/workspaces/api/workspaces';
-  const RELEASE_URL = '/workspaces/api/workspaces/7/release';
-  const INTEGRATE_URL = '/workspaces/api/workspaces/8/integrate';
+
+  const repositoriesUrl = (projectId: string) => `/projects/api/projects/${projectId}/repositories`;
+  const branchesUrl = (repositoryId: string) =>
+    `/projects/api/repositories/${repositoryId}/branches`;
 
   const workspace = (
     id: number,
@@ -71,10 +73,8 @@ describe('WorkspacesPage', () => {
   /**
    * Let every pending microtask land, then render.
    *
-   * The page's requests chain: the repositories arrive, an effect notices the repository is now
-   * resolved, and only then is the workspace listing asked for. A single `whenStable()` can return
-   * before that chain has finished, so the next request would not exist yet — which is a flaky
-   * spec, not a real one.
+   * The page's requests chain three deep — the projects, then each project's repositories, then two
+   * reads per repository — so a single `whenStable()` can return before the next request exists.
    */
   async function settle(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -85,47 +85,68 @@ describe('WorkspacesPage', () => {
     return harness.fixture.nativeElement as HTMLElement;
   }
 
-  function flushProjects(): void {
-    http
-      .expectOne(PROJECTS_URL)
-      .flush({ entries: [{ project: { id: 'p1', name: 'qits', slug: 'qits' } }] });
-  }
-
-  function flushRepositories(mainBranch = 'main'): void {
-    http.expectOne(REPOSITORIES_URL).flush({
-      entries: [
-        {
-          repository: {
-            id: 'qits-ci',
-            url: 'ssh://git@example/qits-ci.git',
-            mainBranch,
-            archetype: 'SERVICE',
-            projectId: 'p1',
-          },
-        },
-      ],
+  function flushProjects(projects: readonly { id: string; name: string }[]): void {
+    http.expectOne(PROJECTS_URL).flush({
+      entries: projects.map((project) => ({
+        project: { ...project, slug: project.id, description: null, dns: null },
+      })),
     });
   }
 
-  function flushWorkspaces(workspaces: readonly WorkspaceDto[]): void {
-    http
-      .expectOne((candidate) => candidate.url === WORKSPACES_URL)
-      .flush({ entries: workspaces.map((entry) => ({ workspace: entry })) });
+  function flushRepositories(
+    projectId: string,
+    repositories: readonly { id: string; mainBranch?: string }[],
+  ): void {
+    http.expectOne(repositoriesUrl(projectId)).flush({
+      entries: repositories.map((repository) => ({
+        repository: {
+          id: repository.id,
+          url: `ssh://git@example/${repository.id}.git`,
+          mainBranch: repository.mainBranch ?? 'main',
+          archetype: 'SERVICE',
+          projectId,
+        },
+      })),
+    });
   }
 
-  /** Land on the page with a repository already chosen, everything flushed. */
-  async function openAt(workspaces: readonly WorkspaceDto[], mainBranch = 'main'): Promise<void> {
-    harness = await RouterTestingHarness.create('/?project=p1&repository=qits-ci');
-    flushProjects();
-    await settle();
-    flushRepositories(mainBranch);
-    await settle();
-    flushWorkspaces(workspaces);
-    await settle();
+  function expectWorkspaces(repositoryId: string) {
+    return http.expectOne(
+      (candidate) =>
+        candidate.method === 'GET' &&
+        candidate.url === WORKSPACES_URL &&
+        candidate.params.get('repositoryId') === repositoryId,
+    );
   }
 
-  function button(label: string): HTMLButtonElement {
-    const found = [...page().querySelectorAll('button')].find((candidate) =>
+  function flushWorkspaces(repositoryId: string, workspaces: readonly WorkspaceDto[]): void {
+    expectWorkspaces(repositoryId).flush({
+      entries: workspaces.map((entry) => ({ workspace: entry })),
+    });
+  }
+
+  function flushBranches(repositoryId: string, names: readonly string[]): void {
+    http.expectOne(branchesUrl(repositoryId)).flush({
+      branches: names.map((name) => ({
+        name,
+        canCleanup: false,
+        parent: null,
+        ahead: null,
+        behind: null,
+      })),
+    });
+  }
+
+  function nodes(): readonly HTMLElement[] {
+    return [...page().querySelectorAll<HTMLElement>('app-repository-node')];
+  }
+
+  function rootNames(): readonly string[] {
+    return nodes().map((node) => node.querySelector('h2')?.textContent?.trim() ?? '');
+  }
+
+  function button(within: ParentNode, label: string): HTMLButtonElement {
+    const found = [...within.querySelectorAll('button')].find((candidate) =>
       (candidate.textContent ?? '').trim().includes(label),
     );
     if (!found) {
@@ -134,171 +155,232 @@ describe('WorkspacesPage', () => {
     return found;
   }
 
-  it('reads the projects and asks qits-workspaces for nothing until a repository is chosen', async () => {
+  /** The common opening: two projects, one repository each, nothing flushed below that. */
+  async function openTwoRepositories(): Promise<void> {
     harness = await RouterTestingHarness.create('/');
-    flushProjects();
-    await settle();
-
-    // A workspace listing without a repositoryId is a guaranteed refusal, so it is not attempted.
-    http.expectNone((candidate) => candidate.url === WORKSPACES_URL);
-    expect(page().textContent).toContain('Pick a repository');
-  });
-
-  it('loads a project’s repositories when the project select changes', async () => {
-    harness = await RouterTestingHarness.create('/');
-    flushProjects();
-    await settle();
-
-    const select = page().querySelectorAll('select')[0];
-    select.value = 'p1';
-    select.dispatchEvent(new Event('change'));
-    await settle();
-
-    flushRepositories();
-    await settle();
-    http.expectNone((candidate) => candidate.url === WORKSPACES_URL);
-    expect(page().textContent).toContain('qits-ci');
-  });
-
-  it('lists a repository’s workspaces from a deep link', async () => {
-    await openAt([workspace(7, 'explorer-grouping'), workspace(8, 'dns-records')]);
-
-    const rows = page().querySelectorAll('app-workspace-row');
-    expect(rows.length).toBe(2);
-    expect(page().textContent).toContain('explorer-grouping');
-    expect(page().textContent).toContain('2 live workspaces in qits-ci');
-  });
-
-  it('names the repository’s own default branch rather than assuming “main”', async () => {
-    // Every repository here says main and none of them promises to; the destination is read from
-    // qits-projects, so a repository on `trunk` is described correctly — and a workspace parented
-    // on `trunk` is the one that gets the release door.
-    await openAt([workspace(7, 'explorer-grouping', { parent: 'trunk' })], 'trunk');
-    expect(page().textContent).toContain('merges into');
-    expect(page().textContent).toContain('trunk');
-    expect(button('Release…')).toBeTruthy();
-  });
-
-  it('gives each row the door its parent branch calls for', async () => {
-    await openAt([
-      workspace(7, 'explorer-grouping'),
-      workspace(8, 'group-runs', { parent: 'epic/explorer', branch: 'task/group-runs' }),
+    flushProjects([
+      { id: 'p1', name: 'qits' },
+      { id: 'p2', name: 'wohlben' },
     ]);
-
-    const doors = [...page().querySelectorAll('app-merge-panel button')].map((candidate) =>
-      (candidate.textContent ?? '').trim(),
-    );
-    expect(doors).toEqual(['Release…', 'Integrate…']);
-  });
-
-  it('says a repository has no live workspaces rather than drawing nothing', async () => {
-    await openAt([]);
-    expect(page().textContent).toContain('No live workspaces');
-  });
-
-  it('offers a retry when the workspace listing fails', async () => {
-    harness = await RouterTestingHarness.create('/?project=p1&repository=qits-ci');
-    flushProjects();
     await settle();
-    flushRepositories();
-    await settle();
-    http
-      .expectOne((candidate) => candidate.url === WORKSPACES_URL)
-      .flush({ message: 'no such repository' }, { status: 404, statusText: 'Not Found' });
-    await settle();
-
-    expect(page().textContent).toContain('Could not load the workspaces');
-
-    button('Retry').click();
-    await settle();
-    flushWorkspaces([workspace(7, 'explorer-grouping')]);
-    await settle();
-
-    expect(page().textContent).toContain('explorer-grouping');
-  });
-
-  /** Open a row's door, write a summary and submit it. */
-  async function sendThroughTheDoor(door: string, summary: string): Promise<void> {
-    button(door).click();
-    await settle();
-
-    const input = page().querySelector<HTMLInputElement>('input.summary');
-    if (!input) {
-      throw new Error('the summary field is not on screen');
-    }
-    input.value = summary;
-    input.dispatchEvent(new Event('input'));
-    await settle();
-
-    page()
-      .querySelector('form')
-      ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    flushRepositories('p1', [{ id: 'qits-ci' }]);
+    flushRepositories('p2', [{ id: 'qits-spa-home' }]);
     await settle();
   }
 
-  it('keeps the version and the merge sha after the reload drops the released workspace', async () => {
-    await openAt([workspace(7, 'explorer-grouping')]);
-    await sendThroughTheDoor('Release…', 'teach the explorer to group runs by repository');
-
-    http.expectOne(RELEASE_URL).flush({
-      version: '2026.731.193059',
-      commitSha: '9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456',
-      branch: 'explorer-grouping',
-    });
+  it('draws each repository as a root, with the project it belongs to beside it', async () => {
+    await openTwoRepositories();
+    flushWorkspaces('qits-ci', [workspace(7, 'fix-lint')]);
+    flushBranches('qits-ci', ['main', 'fix-lint']);
+    flushWorkspaces('qits-spa-home', []);
+    flushBranches('qits-spa-home', ['main']);
     await settle();
 
-    // The success resolves the workspace, so the list it came from no longer holds it.
-    flushWorkspaces([]);
-    await settle();
-
-    const landed = page().querySelector('.landed');
-    expect(landed?.textContent).toContain('2026.731.193059');
-    expect(landed?.textContent).toContain('9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456');
-    expect(landed?.textContent).toContain('explorer-grouping');
-    expect(page().querySelectorAll('app-workspace-row').length).toBe(0);
-    expect(page().textContent).toContain('No live workspaces');
+    expect(rootNames()).toEqual(['qits-ci', 'qits-spa-home']);
+    expect(nodes()[0].textContent).toContain('qits');
+    expect(nodes()[1].textContent).toContain('wohlben');
+    // Nothing at all under the second one, and it says so rather than drawing a blank band.
+    expect(nodes()[1].querySelector('app-empty')).not.toBeNull();
   });
 
-  it('records an integrate by where it landed, with no version to show for it', async () => {
-    await openAt([
-      workspace(8, 'group-runs', { parent: 'epic/explorer', branch: 'task/group-runs' }),
+  it('renders the repository that answered while the other is still loading', async () => {
+    await openTwoRepositories();
+    flushWorkspaces('qits-ci', [workspace(7, 'fix-lint')]);
+    flushBranches('qits-ci', ['main', 'fix-lint']);
+    flushBranches('qits-spa-home', ['main']);
+    await settle();
+
+    // The slow repository is already a root, with its own waiting state — not a page-wide barrier.
+    expect(rootNames()).toEqual(['qits-ci', 'qits-spa-home']);
+    expect(nodes()[0].querySelector('app-workspace-row')).not.toBeNull();
+    expect(nodes()[0].querySelector('.async-loading')).toBeNull();
+    expect(nodes()[1].querySelector('.async-loading')).not.toBeNull();
+    // "Nothing here" is not yet a fact for a repository that has not answered.
+    expect(nodes()[1].querySelector('app-empty')).toBeNull();
+
+    flushWorkspaces('qits-spa-home', []);
+    await settle();
+    expect(nodes()[1].querySelector('app-empty')).not.toBeNull();
+  });
+
+  it('leaves each repository’s own trunk out of the tree', async () => {
+    await openTwoRepositories();
+    flushWorkspaces('qits-ci', []);
+    flushBranches('qits-ci', ['main', 'fix-lint']);
+    flushWorkspaces('qits-spa-home', []);
+    flushBranches('qits-spa-home', ['main', 'trunk']);
+    await settle();
+
+    // One branch row under qits-ci: `main` is the trunk, not work.
+    const rows = nodes()[0].querySelectorAll('app-branch-row');
+    expect(rows.length).toBe(1);
+    expect(rows[0].textContent).toContain('fix-lint');
+    // And the trunk is the repository's *own* default branch: qits-spa-home says main too, so its
+    // `trunk` branch is ordinary work and keeps its row.
+    expect(nodes()[1].querySelectorAll('app-branch-row').length).toBe(1);
+  });
+
+  it('sorts the busiest repository first, and undated work last within it', async () => {
+    await openTwoRepositories();
+    flushWorkspaces('qits-ci', [workspace(7, 'fix-lint', { createdAt: '2026-08-01T09:00:00Z' })]);
+    flushBranches('qits-ci', ['main']);
+    flushWorkspaces('qits-spa-home', [
+      workspace(8, 'undated'),
+      workspace(9, 'newest', { createdAt: '2026-08-04T09:00:00Z' }),
     ]);
-    await sendThroughTheDoor('Integrate…', 'land the task on its epic');
-
-    http.expectOne(INTEGRATE_URL).flush({
-      commitSha: '4b5c6d7e8f90123456789abcdef0123456789abc',
-      branch: 'task/group-runs',
-      targetBranch: 'epic/explorer',
-    });
+    flushBranches('qits-spa-home', ['main']);
     await settle();
 
-    flushWorkspaces([]);
-    await settle();
-
-    const landed = page().querySelector('.landed');
-    expect(landed?.textContent).toContain('task/group-runs');
-    expect(landed?.textContent).toContain('epic/explorer');
-    expect(landed?.textContent).toContain('4b5c6d7e8f90123456789abcdef0123456789abc');
-    // No version was stamped, so the record shows none rather than a blank where one would be.
-    expect(landed?.querySelector('strong')).toBeNull();
+    expect(rootNames()).toEqual(['qits-spa-home', 'qits-ci']);
+    const labels = [...nodes()[0].querySelectorAll('app-workspace-row h3')].map((heading) =>
+      heading.textContent?.trim(),
+    );
+    expect(labels).toEqual(['newest', 'undated']);
   });
 
-  it('re-reads the list when a row reports it is already integrated', async () => {
-    await openAt([workspace(7, 'explorer-grouping')]);
-    await sendThroughTheDoor('Release…', 'anything');
+  it('works without createdAt at all, sorting the repository that has none below', async () => {
+    await openTwoRepositories();
+    flushWorkspaces('qits-ci', [workspace(7, 'fix-lint')]);
+    flushBranches('qits-ci', ['main']);
+    flushWorkspaces('qits-spa-home', [
+      workspace(8, 'dated', { createdAt: '2026-07-01T09:00:00Z' }),
+    ]);
+    flushBranches('qits-spa-home', ['main']);
+    await settle();
+
+    // The page renders either way; it simply cannot claim qits-ci is recent.
+    expect(rootNames()).toEqual(['qits-spa-home', 'qits-ci']);
+    expect(nodes()[1].querySelector('app-workspace-row')?.textContent).toContain('fix-lint');
+  });
+
+  it('offers a workspace on a branch that has none, and posts exactly what adoption means', async () => {
+    await openTwoRepositories();
+    // The label `feature-fix-lint` is already taken by a workspace on another branch, so the derived
+    // one has to step around it.
+    flushWorkspaces('qits-ci', [workspace(7, 'feature-fix-lint', { branch: 'something-else' })]);
+    flushBranches('qits-ci', ['main', 'feature/fix-lint', 'something-else']);
+    flushWorkspaces('qits-spa-home', []);
+    flushBranches('qits-spa-home', ['main']);
+    await settle();
+
+    const rows = nodes()[0].querySelectorAll('app-branch-row');
+    expect(rows.length).toBe(1);
+    expect(rows[0].textContent).toContain('feature/fix-lint');
+
+    button(rows[0], 'Create workspace').click();
+    await settle();
+
+    const create = http.expectOne(
+      (candidate) => candidate.method === 'POST' && candidate.url === WORKSPACES_URL,
+    );
+    expect(create.request.body).toEqual({
+      repositoryId: 'qits-ci',
+      id: 'feature-fix-lint-2',
+      parent: 'main',
+      branch: 'feature/fix-lint',
+      preamble: '',
+      adoptExisting: true,
+    });
+    create.flush({ workspace: workspace(8, 'feature-fix-lint-2', { branch: 'feature/fix-lint' }) });
+    await settle();
+
+    // Only this repository is re-read: the workspace listing is the expensive call on the platform,
+    // and nothing about the other repository changed.
+    http.expectNone(
+      (candidate) =>
+        candidate.url === WORKSPACES_URL &&
+        candidate.params.get('repositoryId') === 'qits-spa-home',
+    );
+    http.expectNone(branchesUrl('qits-ci'));
+    flushWorkspaces('qits-ci', [
+      workspace(7, 'feature-fix-lint', { branch: 'something-else' }),
+      workspace(8, 'feature-fix-lint-2', { branch: 'feature/fix-lint' }),
+    ]);
+    await settle();
+
+    expect(nodes()[0].querySelectorAll('app-workspace-row').length).toBe(2);
+    expect(nodes()[0].querySelectorAll('app-branch-row').length).toBe(0);
+  });
+
+  it('keeps a failed create on the row that caused it, and then shows what is really there', async () => {
+    await openTwoRepositories();
+    flushWorkspaces('qits-ci', []);
+    flushBranches('qits-ci', ['main', 'fix-lint']);
+    flushWorkspaces('qits-spa-home', []);
+    flushBranches('qits-spa-home', ['main']);
+    await settle();
+
+    button(nodes()[0], 'Create workspace').click();
+    await settle();
 
     http
-      .expectOne(RELEASE_URL)
-      .flush({ message: 'already integrated' }, { status: 409, statusText: 'Conflict' });
+      .expectOne((candidate) => candidate.method === 'POST' && candidate.url === WORKSPACES_URL)
+      .flush(
+        { message: 'branch already has an active workspace' },
+        { status: 409, statusText: 'Conflict' },
+      );
     await settle();
 
-    button('Refresh the list').click();
+    // The reason stays on the row that produced it rather than blanking to a shimmer.
+    expect(nodes()[0].querySelector('app-branch-row')?.textContent).toContain(
+      'branch already has an active workspace',
+    );
+
+    // The list is re-read regardless: a 409 here means the workspace exists, which is worth seeing.
+    flushWorkspaces('qits-ci', [workspace(9, 'fix-lint')]);
     await settle();
 
-    // Nothing is recorded — nothing landed — and the list is simply read again.
-    flushWorkspaces([]);
+    expect(nodes()[0].querySelectorAll('app-workspace-row').length).toBe(1);
+    expect(nodes()[0].querySelectorAll('app-branch-row').length).toBe(0);
+  });
+
+  it('offers a retry for the one repository whose workspaces failed', async () => {
+    await openTwoRepositories();
+    expectWorkspaces('qits-ci').flush(
+      { message: 'no such repository' },
+      { status: 404, statusText: 'Not Found' },
+    );
+    flushBranches('qits-ci', ['main']);
+    flushWorkspaces('qits-spa-home', []);
+    flushBranches('qits-spa-home', ['main']);
     await settle();
-    expect(page().querySelector('.landed')).toBeNull();
-    expect(page().textContent).toContain('No live workspaces');
+
+    expect(nodes()[0].textContent).toContain('Could not load the workspaces');
+
+    button(nodes()[0], 'Retry').click();
+    await settle();
+    flushWorkspaces('qits-ci', [workspace(7, 'fix-lint')]);
+    await settle();
+
+    expect(nodes()[0].textContent).toContain('fix-lint');
+  });
+
+  it('names the project whose repository listing failed, and retries that one alone', async () => {
+    harness = await RouterTestingHarness.create('/');
+    flushProjects([
+      { id: 'p1', name: 'qits' },
+      { id: 'p2', name: 'wohlben' },
+    ]);
+    await settle();
+    http
+      .expectOne(repositoriesUrl('p1'))
+      .flush({ message: 'gone' }, { status: 503, statusText: 'Service Unavailable' });
+    flushRepositories('p2', [{ id: 'qits-spa-home' }]);
+    await settle();
+    flushWorkspaces('qits-spa-home', []);
+    flushBranches('qits-spa-home', ['main']);
+    await settle();
+
+    expect(page().textContent).toContain('Could not load the repositories in qits');
+
+    button(page(), 'Retry').click();
+    await settle();
+    flushRepositories('p1', [{ id: 'qits-ci' }]);
+    await settle();
+    flushWorkspaces('qits-ci', []);
+    flushBranches('qits-ci', ['main']);
+    await settle();
+
+    expect(rootNames()).toContain('qits-ci');
   });
 });

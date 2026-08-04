@@ -3,110 +3,34 @@
     <h1>Workspaces</h1>
     <p class="lede">{{ summary() }}</p>
   </div>
-  @if (repository()) {
-    <qits-button variant="secondary" size="sm" (pressed)="reloadWorkspaces()">Refresh</qits-button>
-  }
+  <qits-button variant="secondary" size="sm" (pressed)="load()">Refresh</qits-button>
 </header>
-
-<section class="picker" aria-label="Repository">
-  <label class="field">
-    <span>Project</span>
-    <select [value]="selectedProjectId()" (change)="chooseProject($event)">
-      <option value="">Choose a project…</option>
-      @for (project of projectList(); track project.id) {
-        <option [value]="project.id">{{ project.name }}</option>
-      }
-    </select>
-  </label>
-
-  <label class="field">
-    <span>Repository</span>
-    <select
-      [value]="selectedRepositoryId()"
-      [disabled]="repositoryList().length === 0"
-      (change)="chooseRepository($event)"
-    >
-      <option value="">Choose a repository…</option>
-      @for (repo of repositoryList(); track repo.id) {
-        <option [value]="repo.id">{{ repo.id }} · {{ repo.archetype.toLowerCase() }}</option>
-      }
-    </select>
-  </label>
-</section>
 
 <app-async
   [state]="projects()"
   loadingLabel="Loading projects"
   errorLabel="Could not load the projects"
-  (retry)="loadProjects()"
+  (retry)="load()"
 />
 
-<app-async
-  [state]="repositories()"
-  loadingLabel="Loading repositories"
-  errorLabel="Could not load the repositories"
-  (retry)="reloadRepositories()"
-/>
-
-@if (repositories().kind === 'ready' && repositoryList().length === 0) {
-  <app-empty message="This project holds no repositories." />
-}
-
-@if (landed().length > 0) {
-  <section class="landed" aria-label="Merges made here">
-    <h2>Landed from this screen</h2>
-    <ul>
-      @for (record of landed(); track record.result.commitSha) {
-        <li>
-          @if (record.result.version) {
-            <strong>{{ record.result.version }}</strong> —
-          }
-          <code>{{ record.result.branch }}</code> →
-          <code>{{ record.result.targetBranch }}</code> from workspace
-          <code>{{ record.workspaceLabel }}</code
-          >, merge commit
-          <code [title]="record.result.commitSha">{{ record.result.commitSha }}</code>
-        </li>
-      }
-    </ul>
-  </section>
-}
-
-@if (repository()) {
+@for (read of projectReads(); track read.projectId) {
   <app-async
-    [state]="workspaces()"
-    loadingLabel="Loading workspaces"
-    errorLabel="Could not load the workspaces"
-    (retry)="reloadWorkspaces()"
+    [state]="read.state"
+    loadingLabel="Loading repositories"
+    [errorLabel]="'Could not load the repositories in ' + read.projectName"
+    (retry)="loadRepositories(read.projectId)"
   />
+}
 
-  @if (workspaces().kind === 'ready') {
-    @if (workspaceList().length === 0) {
-      <app-empty
-        message="No live workspaces in this repository. Integrated and abandoned ones are history, and are not listed here."
-      />
-    } @else {
-      <ul class="workspaces">
-        @for (workspace of workspaceList(); track workspace.id) {
-          <li>
-            <app-workspace-row [workspace]="workspace">
-              <a
-                class="open"
-                [routerLink]="['/repositories', selectedRepositoryId(), 'workspaces', workspace.id]"
-                >Open this workspace</a
-              >
-              <app-merge-panel
-                [workspace]="workspace"
-                [mainBranch]="mainBranch()"
-                (merged)="onMerged(workspace, $event)"
-                (refresh)="reloadWorkspaces()"
-              />
-            </app-workspace-row>
-          </li>
-        }
-      </ul>
-    }
-  }
-} @else if (selectedProjectId() && repositories().kind === 'ready') {
-  <app-empty message="Pick a repository above to see its workspaces." />
+@for (node of roots(); track node.repository.id) {
+  <app-repository-node
+    [node]="node"
+    (retryWorkspaces)="loadWorkspaces(node.repository.id)"
+    (retryBranches)="loadBranches(node.repository.id)"
+    (create)="createWorkspace(node.repository, $event)"
+  />
+}
+
+@if (projects().kind === 'ready' && projectReads().length === 0 && roots().length === 0) {
+  <app-empty message="No repositories on this platform yet." />
 }

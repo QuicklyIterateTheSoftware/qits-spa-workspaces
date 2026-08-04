@@ -73,6 +73,15 @@ export interface WorkspaceDto {
   readonly daemonVersion: string | null;
   readonly daemonBuildTime: string | null;
   readonly daemonOutdated: boolean | null;
+
+  /**
+   * When the workspace row was created — the overview's ordering key, and **optional on purpose**.
+   *
+   * The field is landing on qits-workspaces beside this change, so a deployed service may or may not
+   * answer it. Optional rather than nullable says exactly that: `undefined` means "this service does
+   * not send it yet", and the tree sorts those rows last instead of pretending they are old.
+   */
+  readonly createdAt?: string;
 }
 
 /** The workspace list envelope: entries, each wrapping the thing it lists. */
@@ -362,6 +371,53 @@ export interface RepositoryDto {
 /** projects' repository list envelope. */
 export interface RepositoryEntriesResponse {
   readonly entries: readonly { readonly repository: RepositoryDto }[];
+}
+
+/**
+ * One branch of a repository, as qits-projects lists it.
+ *
+ * The overview joins this to the workspace list by {@link name}, and that is the only field it can
+ * rely on: `parent`, `ahead` and `behind` need a server-side enrichment bean that the deployed
+ * service does not have, so they arrive null and `canCleanup` arrives false. They are declared
+ * because the endpoint promises them, and drawn only when they are actually there — a branch shown
+ * as "up to date" because nobody measured it would be the tree's one outright lie.
+ */
+export interface BranchDto {
+  readonly name: string;
+  readonly canCleanup: boolean;
+  readonly parent: string | null;
+  readonly ahead: number | null;
+  readonly behind: number | null;
+}
+
+/** The branch list's envelope — a bare array under `branches`, not projects' `entries` wrapper. */
+export interface BranchesResponse {
+  readonly branches: readonly BranchDto[];
+}
+
+/**
+ * What creating a workspace takes.
+ *
+ * **`repositoryId` rides in the body**, unlike the listing's query parameter: a create carries its
+ * scope in the payload, and the repository is not a filter on a POST.
+ *
+ * `id` is the requested *label*, not an identifier — the created workspace's identifier comes back
+ * in the answer. `adoptExisting` is what tells the service to take over a branch that already
+ * exists instead of forking a fresh one, which is the whole of the overview's create action: the
+ * branch is already there, and it is the workspace that is missing.
+ */
+export interface CreateWorkspaceRequest {
+  readonly repositoryId: string;
+  readonly id: string;
+  readonly parent: string;
+  readonly branch: string;
+  readonly preamble: string;
+  readonly adoptExisting: boolean;
+}
+
+/** What a create answers: the workspace it just made. */
+export interface CreateWorkspaceResponse {
+  readonly workspace: WorkspaceDto;
 }
 
 /**

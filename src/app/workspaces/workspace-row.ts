@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { QitsBadge, type QitsBadgeTone } from '@qits/ui-components';
 import type { WorkspaceDto } from '../api/dto';
-import { driftLabel } from '../ui/format';
+import { driftLabel, relativeSince } from '../ui/format';
 
 /** One badge to draw: what it says and how loud it is. */
 interface RowBadge {
@@ -42,6 +42,10 @@ interface RowBadge {
           @if (drift()) {
             <span class="sep">·</span>
             <span>{{ drift() }}</span>
+          }
+          @if (created()) {
+            <span class="sep">·</span>
+            <span [title]="workspace().createdAt ?? ''">started {{ created() }}</span>
           }
         </p>
         @if (badges().length > 0) {
@@ -115,6 +119,19 @@ export class WorkspaceRow {
   protected readonly drift = computed(() => {
     const workspace = this.workspace();
     return driftLabel(workspace.ahead, workspace.behind);
+  });
+
+  /**
+   * How long this workspace has been going, or nothing at all.
+   *
+   * `createdAt` is optional on the wire — a service that predates the field simply does not send it
+   * — so the whole clause is dropped rather than drawn as an em dash. It is also the tree's sort
+   * key, which makes its absence worth seeing: a row with no "started" is a row the ordering could
+   * not place.
+   */
+  protected readonly created = computed(() => {
+    const createdAt = this.workspace().createdAt;
+    return createdAt ? relativeSince(createdAt) : '';
   });
 
   /**

@@ -7,6 +7,8 @@ import type {
   BootstrapRunDto,
   BootstrapRunsResponse,
   ContainerProcessResponse,
+  CreateWorkspaceRequest,
+  CreateWorkspaceResponse,
   DiscardResponse,
   IntegrateResponse,
   MergeRequest,
@@ -69,6 +71,24 @@ export class WorkspacesApi {
       this.http.get<WorkspaceEntriesResponse>(`${this.base}/workspaces/api/workspaces`, { params }),
     );
     return response.entries.map((entry) => entry.workspace);
+  }
+
+  /**
+   * Create a workspace, and — as the overview always does — over a branch that already exists.
+   *
+   * `repositoryId` is in the body and not in the query string, which is the one thing about this
+   * route worth remembering: the listing above scopes by a query parameter, the create does not.
+   * The service reads the field from the payload and answers 400 without it.
+   *
+   * Rejects with the `HttpErrorResponse`. A 409 here means the branch already has an active
+   * workspace, which is the race a second press produces — so the caller re-reads the list rather
+   * than retrying.
+   */
+  async createWorkspace(request: CreateWorkspaceRequest): Promise<WorkspaceDto> {
+    const response = await firstValueFrom(
+      this.http.post<CreateWorkspaceResponse>(`${this.base}/workspaces/api/workspaces`, request),
+    );
+    return response.workspace;
   }
 
   /**

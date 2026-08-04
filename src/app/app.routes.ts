@@ -12,11 +12,12 @@ import { WorkspacesPage } from './workspaces/workspaces-page';
  * layout's own outlet, and moving between them never rebuilds the sidebar. This is the slot the
  * previous comment promised; the workspaces page is what arrived in it.
  *
- * **The workspaces list is the root view**, not a child called `/workspaces`: the app is already
+ * **The workspace overview is the root view**, not a child called `/workspaces`: the app is already
  * served at `/workspaces/`, so a second segment of the same name would read as
- * `/workspaces/workspaces/`. Which repository is being looked at is carried in query parameters
- * (`?project=…&repository=…`) rather than in path segments — it is a selection, the path is for
- * resources, and query parameters keep the back button meaning "the previous repository".
+ * `/workspaces/workspaces/`. It takes no parameters at all — it is a tree of every repository on
+ * the platform, so there is no selection to carry. The `?project=…&repository=…` pair that the
+ * picker used to write is gone with the picker; a bookmark to one of those URLs still lands on the
+ * overview, which now shows that repository among the rest.
  *
  * **The detail route names a repository and then a workspace**, and the repository segment is not
  * decoration: qits-workspaces' listing takes a mandatory `repositoryId` and answers 404 without one,

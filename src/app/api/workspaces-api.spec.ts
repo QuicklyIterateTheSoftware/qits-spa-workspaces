@@ -54,6 +54,35 @@ describe('WorkspacesApi', () => {
     await expect(workspaces).resolves.toEqual([]);
   });
 
+  it('carries the repository in the create’s body, where the service reads it', async () => {
+    // The listing scopes by a query parameter and the create does not: a create carries its scope
+    // in the payload, and the service answers 400 for a body without `repositoryId`.
+    const created = api.createWorkspace({
+      repositoryId: 'qits-ci',
+      id: 'fix-lint',
+      parent: 'main',
+      branch: 'fix-lint',
+      preamble: '',
+      adoptExisting: true,
+    });
+    const request = http.expectOne(
+      (candidate) => candidate.method === 'POST' && candidate.url === '/workspaces/api/workspaces',
+    );
+
+    expect(request.request.params.get('repositoryId')).toBeNull();
+    expect(request.request.body).toEqual({
+      repositoryId: 'qits-ci',
+      id: 'fix-lint',
+      parent: 'main',
+      branch: 'fix-lint',
+      preamble: '',
+      adoptExisting: true,
+    });
+
+    request.flush({ workspace: { id: 12, workspaceId: 'fix-lint', status: 'ACTIVE' } });
+    await expect(created).resolves.toMatchObject({ id: 12, workspaceId: 'fix-lint' });
+  });
+
   it('posts the summary and nothing else to the workspace’s release route', async () => {
     const release = api.release(7, 'teach the explorer to group runs by repository');
     const request = http.expectOne('/workspaces/api/workspaces/7/release');

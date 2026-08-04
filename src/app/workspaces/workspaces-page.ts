@@ -1,240 +1,340 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  effect,
-  inject,
-  signal,
-} from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink, convertToParamMap } from '@angular/router';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { QitsButton } from '@qits/ui-components';
-import type { ProjectDto, RepositoryDto, WorkspaceDto } from '../api/dto';
+import type { BranchDto, ProjectDto, RepositoryDto, WorkspaceDto } from '../api/dto';
 import { ProjectsApi } from '../api/projects-api';
 import { WorkspacesApi } from '../api/workspaces-api';
-import type { MergeResult } from '../merge/merge-outcome';
-import { MergePanel } from '../merge/merge-panel';
 import { Async } from '../ui/async';
 import { Empty } from '../ui/empty';
-import { IDLE, LOADING, failed, ready, type Loadable } from '../ui/loadable';
-import { WorkspaceRow } from './workspace-row';
+import { LOADING, describeError, failed, ready, type Loadable } from '../ui/loadable';
+import {
+  childRows,
+  deriveWorkspaceId,
+  newestWorkspaceAt,
+  sortRoots,
+  type RepositoryNode,
+} from './overview-tree';
+import { RepositoryNodeView } from './repository-node';
 
-/** A merge made on this screen: the workspace it came from, and what the service answered. */
-export interface MergeRecord {
-  readonly workspaceLabel: string;
-  readonly result: MergeResult;
+/** One project's repository listing, while it is still out or once it has failed. */
+export interface ProjectReadState {
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly state: Loadable<readonly RepositoryDto[]>;
 }
 
 /**
- * A repository's live workspaces, and the action that sends each one home.
+ * Everything in flight, across every project, as one tree.
  *
- * **Why a repository has to be picked at all.** qits-workspaces' listing takes a mandatory
- * `repositoryId` and the service owns no repository listing of its own — it holds the id as an
- * opaque string, in a different database, with no join. So the picker is two reads against
- * qits-projects, and it is the price of the service boundary rather than a screen someone wanted.
- * The choice rides in the query parameters (`/workspaces/?project=…&repository=…`) so a repository
- * a person works in every day is a bookmark, and so the back button means "the previous one".
+ * **A repository is a root and a piece of work is a child.** That is a deliberate simplification of
+ * a larger model — project, then epic, then workspace — and it is the smallest thing that answers
+ * the question people open this page with: what am I in the middle of. Projects survive as a label
+ * beside a repository name, because a repository name alone does not always place it.
  *
- * **What landed is recorded above the list, not in the row that made it.** A successful merge
- * resolves its workspace, so the next listing does not contain it — a success surface living in
- * that row would flash and vanish, taking the version and the merge sha with it. Those strings are
- * the entire useful output of the action, so they are lifted to the page, where they outlive both
- * the row and the reload.
+ * **The picker is gone.** It existed because qits-workspaces' listing takes a mandatory
+ * `repositoryId` and the service owns no repository listing of its own, so somebody had to name
+ * one. The tree pays that price differently: every project's repositories are read, and every
+ * repository's workspaces are asked for at once. Which is why —
  *
- * **Which door a row offers is the workspace's own business.** Release and integrate are two
- * processes, and the panel picks between them from the workspace's parent branch; the page hands it
- * the repository's default branch and nothing more.
+ * **every repository loads on its own.** The workspace listing is the expensive call on this
+ * platform — it refreshes the repository's mirror and then asks docker what is running — so one
+ * all-or-nothing barrier would hold the page at the speed of its worst repository. Each root owns
+ * its own two `Loadable`s and draws whatever has landed.
  *
- * **Each row links into the detail view**, which is the page you sit on while an agent works. The
- * link is built from the repository and the workspace's generated `id` — never its `workspaceId`
- * label, which is unique only among the active workspaces of one repository and is handed out again
- * once one resolves.
+ * **A branch with no workspace is a row with an offer.** The join is by branch name, and the trunk
+ * is left out of it: the repository's default branch is what everything here forked from rather
+ * than a piece of work, so it is never a child and is never offered a workspace.
+ *
+ * **No stream.** Refresh is a button, as it was before. Live updates here would mean one SSE
+ * channel per repository, which is a connection budget nobody has agreed to spend.
  */
 @Component({
   selector: 'app-workspaces-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Async, Empty, MergePanel, QitsButton, RouterLink, WorkspaceRow],
+  imports: [Async, Empty, QitsButton, RepositoryNodeView],
   templateUrl: './workspaces-page.html',
   styleUrl: './workspaces-page.css',
 })
 export class WorkspacesPage {
   private readonly projectsApi = inject(ProjectsApi);
   private readonly workspacesApi = inject(WorkspacesApi);
-  private readonly router = inject(Router);
-  private readonly route = inject(ActivatedRoute);
 
   protected readonly projects = signal<Loadable<readonly ProjectDto[]>>(LOADING);
-  protected readonly repositories = signal<Loadable<readonly RepositoryDto[]>>(IDLE);
-  protected readonly workspaces = signal<Loadable<readonly WorkspaceDto[]>>(IDLE);
 
-  /** Every merge made since this page was opened, newest first. */
-  protected readonly landed = signal<readonly MergeRecord[]>([]);
-
-  private loadedProjectId: string | null = null;
-  private loadedRepositoryId: string | null = null;
-
-  private readonly queryParams = toSignal(this.route.queryParamMap, {
-    initialValue: convertToParamMap({}),
-  });
-
-  protected readonly selectedProjectId = computed(() => this.queryParams().get('project') ?? '');
-  protected readonly selectedRepositoryId = computed(
-    () => this.queryParams().get('repository') ?? '',
-  );
-
-  protected readonly projectList = computed(() => {
-    const state = this.projects();
-    return state.kind === 'ready' ? state.value : [];
-  });
-
-  protected readonly repositoryList = computed(() => {
-    const state = this.repositories();
-    return state.kind === 'ready' ? state.value : [];
-  });
-
-  protected readonly workspaceList = computed(() => {
-    const state = this.workspaces();
-    return state.kind === 'ready' ? state.value : [];
-  });
+  private readonly repositoriesByProject = signal<
+    ReadonlyMap<string, Loadable<readonly RepositoryDto[]>>
+  >(new Map());
+  private readonly workspacesByRepository = signal<
+    ReadonlyMap<string, Loadable<readonly WorkspaceDto[]>>
+  >(new Map());
+  private readonly branchesByRepository = signal<
+    ReadonlyMap<string, Loadable<readonly BranchDto[]>>
+  >(new Map());
 
   /**
-   * The chosen repository, resolved against the listing rather than trusted from the URL.
+   * Creates in flight, and creates that failed — keyed by repository and branch together.
    *
-   * This is what makes the release destination a fact instead of an assumption: `mainBranch` comes
-   * from qits-projects, the panel names it, and it is what tells a row whether it releases or
-   * integrates. Every repository in this platform says "main" today, and none of them promises to.
+   * One flat key rather than a map of maps: a branch name means nothing without its repository (four
+   * of them hold a `fix-lint`), and a single string is what makes "is this row busy" a lookup.
    */
-  protected readonly repository = computed<RepositoryDto | null>(
-    () =>
-      this.repositoryList().find((repository) => repository.id === this.selectedRepositoryId()) ??
-      null,
-  );
+  private readonly creating = signal<ReadonlySet<string>>(new Set());
+  private readonly createErrors = signal<ReadonlyMap<string, string>>(new Map());
 
-  /** The branch a release lands on. Empty until the repository is known — and then it is real. */
-  protected readonly mainBranch = computed(() => this.repository()?.mainBranch ?? '');
+  /** The tree, most recently worked in first, rebuilt from whatever has landed so far. */
+  protected readonly roots = computed<readonly RepositoryNode[]>(() => {
+    const projects = this.projects();
+    if (projects.kind !== 'ready') {
+      return [];
+    }
+    const repositoriesByProject = this.repositoriesByProject();
+    const workspacesByRepository = this.workspacesByRepository();
+    const branchesByRepository = this.branchesByRepository();
+    const creating = this.creating();
+    const createErrors = this.createErrors();
+
+    const nodes: RepositoryNode[] = [];
+    for (const project of projects.value) {
+      const repositories = repositoriesByProject.get(project.id);
+      if (repositories?.kind !== 'ready') {
+        continue;
+      }
+      for (const repository of repositories.value) {
+        // Absent means the request is out but has not been recorded yet, which is loading — not
+        // idle. Nothing on this page is unasked-for.
+        const workspaces = workspacesByRepository.get(repository.id) ?? LOADING;
+        const branches = branchesByRepository.get(repository.id) ?? LOADING;
+        nodes.push({
+          repository,
+          projectName: project.name,
+          workspaces,
+          branches,
+          children: childRows(
+            workspaces.kind === 'ready' ? workspaces.value : [],
+            branches.kind === 'ready' ? branches.value : [],
+            repository.mainBranch,
+          ),
+          settled: answered(workspaces) && answered(branches),
+          newestAt: workspaces.kind === 'ready' ? newestWorkspaceAt(workspaces.value) : null,
+          creating: scoped(creating, repository.id),
+          createErrors: scopedMessages(createErrors, repository.id),
+        });
+      }
+    }
+    return sortRoots(nodes);
+  });
+
+  /** The repository listings still out or failed, so that neither is silent. */
+  protected readonly projectReads = computed<readonly ProjectReadState[]>(() => {
+    const projects = this.projects();
+    if (projects.kind !== 'ready') {
+      return [];
+    }
+    const byProject = this.repositoriesByProject();
+    return projects.value
+      .map((project) => ({
+        projectId: project.id,
+        projectName: project.name,
+        state: byProject.get(project.id) ?? LOADING,
+      }))
+      .filter((read) => read.state.kind !== 'ready');
+  });
 
   protected readonly summary = computed(() => {
-    const repository = this.repository();
-    if (!repository) {
-      return 'Pick a repository to see its workspaces.';
+    const projects = this.projects();
+    if (projects.kind !== 'ready') {
+      return 'Everything in flight, across every project.';
     }
-    const state = this.workspaces();
-    if (state.kind !== 'ready') {
-      return `Live workspaces in ${repository.id}.`;
-    }
-    const count = state.value.length;
+    const repositories = this.roots().length;
+    const count = projects.value.length;
     return (
-      `${count} live ${count === 1 ? 'workspace' : 'workspaces'} in ${repository.id}. ` +
-      `Work off ${repository.mainBranch} is released into it; anything else is integrated into ` +
-      `its parent branch.`
+      `${repositories} ${repositories === 1 ? 'repository' : 'repositories'} across ` +
+      `${count} ${count === 1 ? 'project' : 'projects'}. Most recently worked in first; ` +
+      'a branch with no workspace can be given one.'
     );
   });
 
   constructor() {
-    void this.loadProjects();
-
-    // What the URL says is chosen, is loaded — on first paint, on a deep link, and on the back
-    // button. Each guard is what keeps a re-render from re-issuing a request that is already out.
-    effect(() => {
-      const projectId = this.selectedProjectId();
-      if (projectId !== this.loadedProjectId) {
-        this.loadedProjectId = projectId;
-        this.loadedRepositoryId = null;
-        this.workspaces.set(IDLE);
-        void this.loadRepositories(projectId);
-      }
-    });
-
-    // Keyed on the *resolved* repository, not the parameter: the workspace list is only fetched
-    // once the repository is known to exist, which is also when its default branch is known. A
-    // parameter naming a repository this project does not hold therefore loads nothing and says so,
-    // rather than 404ing against qits-workspaces with a repository id it was never going to accept.
-    effect(() => {
-      const repositoryId = this.repository()?.id ?? '';
-      if (repositoryId !== this.loadedRepositoryId) {
-        this.loadedRepositoryId = repositoryId;
-        void this.loadWorkspaces(repositoryId);
-      }
-    });
+    void this.load();
   }
 
-  protected async loadProjects(): Promise<void> {
+  /** The whole page, from the projects down. First paint and the Refresh button share it. */
+  protected async load(): Promise<void> {
     this.projects.set(LOADING);
+    this.repositoriesByProject.set(new Map());
+    this.workspacesByRepository.set(new Map());
+    this.branchesByRepository.set(new Map());
+    this.createErrors.set(new Map());
+    let projects: readonly ProjectDto[];
     try {
-      this.projects.set(ready(await this.projectsApi.projects()));
+      projects = await this.projectsApi.projects();
     } catch (error) {
       this.projects.set(failed(error));
+      return;
+    }
+    this.projects.set(ready(projects));
+    // Fanned out rather than awaited in turn: there is no all-repositories endpoint, so this is one
+    // request per project, and a slow project must not hold up the ones behind it.
+    for (const project of projects) {
+      void this.loadRepositories(project.id);
     }
   }
 
+  /** One project's repositories, and then the two reads under each of them. */
   protected async loadRepositories(projectId: string): Promise<void> {
-    if (!projectId) {
-      this.repositories.set(IDLE);
+    this.putRepositories(projectId, LOADING);
+    let repositories: readonly RepositoryDto[];
+    try {
+      repositories = await this.projectsApi.repositories(projectId);
+    } catch (error) {
+      this.putRepositories(projectId, failed(error));
       return;
     }
-    this.repositories.set(LOADING);
-    try {
-      this.repositories.set(ready(await this.projectsApi.repositories(projectId)));
-    } catch (error) {
-      this.repositories.set(failed(error));
+    this.putRepositories(projectId, ready(repositories));
+    for (const repository of repositories) {
+      void this.loadWorkspaces(repository.id);
+      void this.loadBranches(repository.id);
     }
-  }
-
-  protected async loadWorkspaces(repositoryId: string): Promise<void> {
-    if (!repositoryId) {
-      this.workspaces.set(IDLE);
-      return;
-    }
-    this.workspaces.set(LOADING);
-    try {
-      this.workspaces.set(ready(await this.workspacesApi.workspaces(repositoryId)));
-    } catch (error) {
-      this.workspaces.set(failed(error));
-    }
-  }
-
-  /** Re-read the list. The one button in the header, and the way out of a stale "already in". */
-  protected reloadWorkspaces(): void {
-    void this.loadWorkspaces(this.repository()?.id ?? '');
-  }
-
-  /** Retry for the repository picker, which has no `repository()` to key on yet. */
-  protected reloadRepositories(): void {
-    void this.loadRepositories(this.selectedProjectId());
   }
 
   /**
-   * A merge landed: record it, then re-read the list.
+   * One repository's workspaces.
    *
-   * The record comes first and deliberately does not depend on the reload succeeding. The version
-   * and the merge sha exist whether or not the next request does, and losing them to a failed
-   * refresh would lose the only copy the user has.
+   * `keepShowing` is what a re-read after a create asks for: the rows stay put while the new list is
+   * fetched. Blanking them to a shimmer would take the failed row — and the message explaining why
+   * it failed — off screen a moment after producing it.
    */
-  protected onMerged(workspace: WorkspaceDto, result: MergeResult): void {
-    this.landed.update((records) => [
-      { workspaceLabel: workspace.workspaceId, result },
-      ...records,
-    ]);
-    this.reloadWorkspaces();
+  protected async loadWorkspaces(repositoryId: string, keepShowing = false): Promise<void> {
+    if (!keepShowing) {
+      this.putWorkspaces(repositoryId, LOADING);
+    }
+    try {
+      this.putWorkspaces(repositoryId, ready(await this.workspacesApi.workspaces(repositoryId)));
+    } catch (error) {
+      this.putWorkspaces(repositoryId, failed(error));
+    }
   }
 
-  protected chooseProject(event: Event): void {
-    const projectId = (event.target as HTMLSelectElement).value;
-    // The repository parameter is dropped rather than kept: repositories belong to one project, so
-    // carrying the old id across would name something the new project does not hold.
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { project: projectId || null, repository: null },
-      queryParamsHandling: 'merge',
-    });
+  protected async loadBranches(repositoryId: string): Promise<void> {
+    this.putBranches(repositoryId, LOADING);
+    try {
+      this.putBranches(repositoryId, ready(await this.projectsApi.branches(repositoryId)));
+    } catch (error) {
+      this.putBranches(repositoryId, failed(error));
+    }
   }
 
-  protected chooseRepository(event: Event): void {
-    const repositoryId = (event.target as HTMLSelectElement).value;
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { repository: repositoryId || null },
-      queryParamsHandling: 'merge',
-    });
+  /**
+   * Adopt a branch: create a workspace over the branch that is already there.
+   *
+   * `adoptExisting` is what makes this one press instead of a dialog. The branch exists, the parent
+   * is the repository's own default branch, and the goal is unwritten — so there is nothing to ask
+   * for, and the label is derived from the branch name under the server's slug rule.
+   *
+   * The list is re-read afterwards **whether or not the create succeeded**, and for this repository
+   * only. A 409 here means the branch already has an active workspace, which is precisely what a
+   * double press produces, so the honest answer to a failure is to show what is actually there.
+   */
+  protected async createWorkspace(repository: RepositoryDto, branch: string): Promise<void> {
+    const key = createKey(repository.id, branch);
+    if (this.creating().has(key)) {
+      return;
+    }
+    this.creating.update((keys) => added(keys, key));
+    this.createErrors.update((messages) => dropped(messages, key));
+    try {
+      await this.workspacesApi.createWorkspace({
+        repositoryId: repository.id,
+        id: deriveWorkspaceId(branch, this.labelsTakenIn(repository.id)),
+        parent: repository.mainBranch,
+        branch,
+        preamble: '',
+        adoptExisting: true,
+      });
+    } catch (error) {
+      this.createErrors.update((messages) => new Map(messages).set(key, describeError(error)));
+    } finally {
+      this.creating.update((keys) => removed(keys, key));
+    }
+    await this.loadWorkspaces(repository.id, true);
   }
+
+  /** The labels this repository has already handed out — what a new one must not collide with. */
+  private labelsTakenIn(repositoryId: string): ReadonlySet<string> {
+    const state = this.workspacesByRepository().get(repositoryId);
+    const workspaces = state?.kind === 'ready' ? state.value : [];
+    return new Set(workspaces.map((workspace) => workspace.workspaceId));
+  }
+
+  private putRepositories(projectId: string, state: Loadable<readonly RepositoryDto[]>): void {
+    this.repositoriesByProject.update((byProject) => new Map(byProject).set(projectId, state));
+  }
+
+  private putWorkspaces(repositoryId: string, state: Loadable<readonly WorkspaceDto[]>): void {
+    this.workspacesByRepository.update((byRepository) =>
+      new Map(byRepository).set(repositoryId, state),
+    );
+  }
+
+  private putBranches(repositoryId: string, state: Loadable<readonly BranchDto[]>): void {
+    this.branchesByRepository.update((byRepository) =>
+      new Map(byRepository).set(repositoryId, state),
+    );
+  }
+}
+
+/** The read is over, one way or the other — which is when "nothing here" becomes sayable. */
+function answered(state: Loadable<unknown>): boolean {
+  return state.kind === 'ready' || state.kind === 'error';
+}
+
+/**
+ * Repository and branch in one key.
+ *
+ * A space is a safe separator rather than a lucky one: git refuses a refname containing one, and a
+ * repository id is a directory name on the git host.
+ */
+function createKey(repositoryId: string, branch: string): string {
+  return `${repositoryId} ${branch}`;
+}
+
+/** The branch names in this repository, out of a set keyed by {@link createKey}. */
+function scoped(keys: ReadonlySet<string>, repositoryId: string): ReadonlySet<string> {
+  const prefix = `${repositoryId} `;
+  const names = new Set<string>();
+  for (const key of keys) {
+    if (key.startsWith(prefix)) {
+      names.add(key.slice(prefix.length));
+    }
+  }
+  return names;
+}
+
+/** The same narrowing for the failure messages, which the row draws beside its button. */
+function scopedMessages(
+  messages: ReadonlyMap<string, string>,
+  repositoryId: string,
+): ReadonlyMap<string, string> {
+  const prefix = `${repositoryId} `;
+  const scopedTo = new Map<string, string>();
+  for (const [key, message] of messages) {
+    if (key.startsWith(prefix)) {
+      scopedTo.set(key.slice(prefix.length), message);
+    }
+  }
+  return scopedTo;
+}
+
+function added(keys: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  return new Set(keys).add(key);
+}
+
+function removed(keys: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(keys);
+  next.delete(key);
+  return next;
+}
+
+function dropped(messages: ReadonlyMap<string, string>, key: string): ReadonlyMap<string, string> {
+  const next = new Map(messages);
+  next.delete(key);
+  return next;
 }

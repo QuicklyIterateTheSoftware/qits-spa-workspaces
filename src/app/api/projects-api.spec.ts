@@ -51,4 +51,23 @@ describe('ProjectsApi', () => {
     });
     await expect(repositories).resolves.toMatchObject([{ id: 'qits-ci', mainBranch: 'main' }]);
   });
+
+  it('reads a repository’s branches from its own path, not the project’s', async () => {
+    // The branch list is the overview's other half: it is the only place a branch with no workspace
+    // can be found, because qits-workspaces knows nothing about refs it did not create.
+    const branches = api.branches('qits-ci');
+    http.expectOne('/projects/api/repositories/qits-ci/branches').flush({
+      branches: [
+        { name: 'main', canCleanup: false, parent: null, ahead: null, behind: null },
+        { name: 'fix-lint', canCleanup: false, parent: null, ahead: null, behind: null },
+      ],
+    });
+    await expect(branches).resolves.toMatchObject([{ name: 'main' }, { name: 'fix-lint' }]);
+  });
+
+  it('reads a branch-free repository as no branches rather than as a crash', async () => {
+    const branches = api.branches('qits-ci');
+    http.expectOne('/projects/api/repositories/qits-ci/branches').flush({});
+    await expect(branches).resolves.toEqual([]);
+  });
 });

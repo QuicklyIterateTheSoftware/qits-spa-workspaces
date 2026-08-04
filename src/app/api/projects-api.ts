@@ -3,6 +3,8 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { QITS_API_BASE } from './api-base';
 import type {
+  BranchDto,
+  BranchesResponse,
   ProjectDto,
   ProjectEntriesResponse,
   RepositoryDto,
@@ -11,7 +13,7 @@ import type {
 } from './dto';
 
 /**
- * The two reads this app makes against qits-projects, and it makes them for one reason:
+ * The reads this app makes against qits-projects, and it makes them for one reason:
  * **qits-workspaces cannot list repositories.** Its workspace listing takes a mandatory
  * `repositoryId`, and it holds repository ids as opaque strings with no listing of its own — so the
  * only place a person can find out which repositories exist is the service that owns them.
@@ -34,7 +36,14 @@ export class ProjectsApi {
     return response.entries.map((entry) => entry.project);
   }
 
-  /** One project's repositories, fetched when that project is chosen and never before. */
+  /**
+   * One project's repositories.
+   *
+   * **There is no all-repositories endpoint**, so the overview fans this out — one request per
+   * project, issued in parallel and rendered as each lands. That is not a shortcut waiting to be
+   * replaced by a single call: repositories are listed under the project that owns them, and the
+   * service offers no other way in.
+   */
   async repositories(projectId: string): Promise<readonly RepositoryDto[]> {
     const response = await firstValueFrom(
       this.http.get<RepositoryEntriesResponse>(
@@ -62,5 +71,25 @@ export class ProjectsApi {
       ),
     );
     return response.repository;
+  }
+
+  /**
+   * One repository's branches — the other half of the overview's tree.
+   *
+   * The workspace list says what is being worked on; this says what branches exist. A branch with no
+   * workspace is the row that offers to make one, and it can only be found here, because
+   * qits-workspaces knows nothing about refs it did not create.
+   *
+   * This read is cheap next to the workspace listing (it reads the mirror's refs and nothing else),
+   * but it is still issued per repository and rendered on its own, so one slow repository never
+   * holds up the rest of the page.
+   */
+  async branches(repositoryId: string): Promise<readonly BranchDto[]> {
+    const response = await firstValueFrom(
+      this.http.get<BranchesResponse>(
+        `${this.base}/projects/api/repositories/${encodeURIComponent(repositoryId)}/branches`,
+      ),
+    );
+    return response.branches ?? [];
   }
 }
