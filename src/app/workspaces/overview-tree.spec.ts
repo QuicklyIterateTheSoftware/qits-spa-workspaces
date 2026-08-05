@@ -5,6 +5,7 @@ import {
   childRows,
   deriveWorkspaceId,
   newestWorkspaceAt,
+  repositoryLabel,
   sortRoots,
   type RepositoryNode,
 } from './overview-tree';
@@ -170,6 +171,23 @@ describe('overview-tree', () => {
       const derived = deriveWorkspaceId(long, new Set([stem]));
       expect(derived.length).toBe(WORKSPACE_ID_MAX_LENGTH);
       expect(derived.endsWith('-2')).toBe(true);
+    });
+  });
+
+  describe('repositoryLabel', () => {
+    it('names the repository by its clone url, not its id', () => {
+      const uuid = '6a3ee124-fe72-4021-82b0-e4111305c142';
+      const repo = { ...repository(uuid), url: 'https://github.com/wohlben/qits-qits.git' };
+      expect(repositoryLabel(repo)).toBe('qits-qits');
+    });
+
+    it('takes the url tail as-is when it carries no .git suffix', () => {
+      const repo = { ...repository('id-1'), url: 'http://host:8080/artifacts/git/qits-artifacts' };
+      expect(repositoryLabel(repo)).toBe('qits-artifacts');
+    });
+
+    it('falls back to the id when the url has no readable tail', () => {
+      expect(repositoryLabel({ ...repository('bare-id'), url: '' })).toBe('bare-id');
     });
   });
 });

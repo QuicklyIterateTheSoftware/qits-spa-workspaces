@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
 import { RouterLink } from '@angular/router';
 import { Async } from '../ui/async';
 import { Empty } from '../ui/empty';
-import type { RepositoryNode } from './overview-tree';
+import { repositoryLabel, type RepositoryNode } from './overview-tree';
 import { BranchRow } from './branch-row';
 import { WorkspaceRow } from './workspace-row';
 
@@ -25,7 +25,7 @@ import { WorkspaceRow } from './workspace-row';
   imports: [Async, BranchRow, Empty, RouterLink, WorkspaceRow],
   template: `
     <div class="root">
-      <h2>{{ node().repository.id }}</h2>
+      <h2>{{ label() }}</h2>
       <span class="project">{{ node().projectName }}</span>
     </div>
 
@@ -122,4 +122,8 @@ export class RepositoryNodeView {
 
   /** A branch name to make a workspace over. */
   readonly create = output<string>();
+
+  label(): string {
+    return repositoryLabel(this.node().repository);
+  }
 }

@@ -135,8 +135,24 @@ export function sortRoots(nodes: readonly RepositoryNode[]): readonly Repository
     if (right.newestAt !== null) {
       return 1;
     }
-    return left.repository.id.localeCompare(right.repository.id);
+    return repositoryLabel(left.repository).localeCompare(repositoryLabel(right.repository));
   });
+}
+
+/**
+ * The name a person knows the repository by.
+ *
+ * The listing carries no name field: platform-seeded repositories use the name as their id, while
+ * user-registered ones get a UUID id — so the id alone renders half the page as hex. The clone
+ * url's last segment is the human name in both cases; the id stays the fallback for a url the
+ * rule cannot read.
+ */
+export function repositoryLabel(repository: RepositoryDto): string {
+  const tail = repository.url?.split('/').filter(Boolean).pop();
+  if (!tail) {
+    return repository.id;
+  }
+  return tail.endsWith('.git') ? tail.slice(0, -'.git'.length) : tail;
 }
 
 /** The most a workspace label may be, server-side and here. */
