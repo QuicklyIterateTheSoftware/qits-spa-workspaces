@@ -349,9 +349,24 @@ export interface ProjectEntriesResponse {
   readonly entries: readonly { readonly project: ProjectDto }[];
 }
 
-/** What kind of thing a repository is. Shown beside its name; nothing branches on it. */
+/**
+ * What kind of thing a repository is. Shown beside its name; nothing branches on it.
+ *
+ * Widened additively: `DAEMON`, `FRONTEND`, `CLI` and `IMAGE` are the new names, and `INTEGRATION`
+ * and `APPLICATION` stay listed until a later release retires them on the server.
+ */
 export type RepositoryArchetype =
-  'PROJECT' | 'SERVICE' | 'LIBRARY' | 'INTEGRATION' | 'APPLICATION' | 'SERVICE_TEMPLATE' | 'FORK';
+  | 'PROJECT'
+  | 'SERVICE'
+  | 'LIBRARY'
+  | 'INTEGRATION'
+  | 'APPLICATION'
+  | 'SERVICE_TEMPLATE'
+  | 'FORK'
+  | 'DAEMON'
+  | 'FRONTEND'
+  | 'CLI'
+  | 'IMAGE';
 
 /**
  * A repository.
