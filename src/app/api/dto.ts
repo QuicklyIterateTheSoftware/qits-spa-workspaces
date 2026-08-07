@@ -374,6 +374,13 @@ export type RepositoryArchetype =
  */
 export interface RepositoryDto {
   readonly id: string;
+  readonly name: string | null;
+  /** The clone url. Read this one. */
+  readonly backupUrl: string;
+  /**
+   * @deprecated The same value as {@link backupUrl}, kept for exactly one release and then dropped
+   * by the server. Declared so the shape still matches the wire; nothing here reads it.
+   */
   readonly url: string;
   readonly mainBranch: string;
   readonly archetype: RepositoryArchetype;
