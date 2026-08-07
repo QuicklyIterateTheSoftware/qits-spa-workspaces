@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideLocationMocks } from '@angular/common/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { provideQitsNavigationLinks, type QitsNavLink } from '@qits/ui-components';
 import { App } from './app';
 import { routes } from './app.routes';
 
@@ -18,6 +19,21 @@ import { routes } from './app.routes';
  * that reads the platform's projects, so a spec about routing has to answer that request or the
  * navigation never settles.
  */
+
+/**
+ * The navigation the layout is handed, standing in for the gateway's `/main-navigation`.
+ *
+ * The literal source rather than a fourth request through the testing backend, and in this suite
+ * that is load-bearing twice over: an unflushed `/main-navigation` would keep the harness from
+ * settling, and `http.verify()` below would fail on it. Nothing is fetched, so the chrome stays out
+ * of a spec that is about routing.
+ */
+const NAV: readonly QitsNavLink[] = [
+  { label: 'Home', href: '/' },
+  { label: 'Workspaces', href: '/workspaces/' },
+  { label: 'Projects', href: '/projects/' },
+];
+
 describe('App', () => {
   let http: HttpTestingController;
 
@@ -28,6 +44,7 @@ describe('App', () => {
         provideLocationMocks(),
         provideHttpClient(),
         provideHttpClientTesting(),
+        provideQitsNavigationLinks(NAV),
       ],
     });
     http = TestBed.inject(HttpTestingController);
@@ -50,9 +67,11 @@ describe('App', () => {
     const layout = harness.routeNativeElement;
 
     expect(layout?.tagName.toLowerCase()).toBe('qits-main-layout');
-    // A floor, not a count: the navigation grows a door whenever the platform grows an app, and a
-    // spec that asserted the exact number would fail on somebody else's release.
-    expect(layout?.querySelectorAll('nav a').length).toBeGreaterThan(0);
+    // The count is this fixture's, and only this fixture's. What the assertion proves is that the
+    // app mounts the chrome and the chrome renders what it is told — how many doors the platform
+    // really has is a deployment fact the gateway answers from its own route table, so asserting
+    // that number is qits-gateway's spec's job, not this one's.
+    expect(layout?.querySelectorAll('nav a')).toHaveLength(NAV.length);
     // The layout carries its own outlet; the page renders in it.
     expect(layout?.querySelector('router-outlet')).not.toBeNull();
     expect(layout?.querySelector('app-workspaces-page')).not.toBeNull();
