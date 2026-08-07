@@ -27,7 +27,6 @@ const REPOSITORY = {
   id: 'qits-ci',
   name: 'qits-ci',
   backupUrl: 'https://example.invalid/qits-ci.git',
-  url: 'https://example.invalid/qits-ci.git',
   mainBranch: 'main',
   archetype: 'SERVICE',
   projectId: 'p1',
