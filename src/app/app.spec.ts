@@ -10,14 +10,13 @@ import { routes } from './app.routes';
 
 /**
  * The shell owns one thing — the outlet — so that is what is asserted here, plus the route table
- * actually reaching the layout behind it, and now the page behind that. What the layout itself
- * renders is qits-spa-ui-components' business; all this repo has to prove is that it is mounted,
- * and mounted as a *route* rather than around the shell, which is what keeps it alive across
- * navigation.
+ * actually reaching the layout behind it. What the layout itself renders is qits-spa-ui-components'
+ * business; all this repo has to prove is that it is mounted, and mounted as a *route* rather than
+ * around the shell, which is what keeps it alive across navigation.
  *
- * The http providers arrived with the first real page: navigating to `/` now mounts a component
- * that reads the platform's projects, so a spec about routing has to answer that request or the
- * navigation never settles.
+ * The root view is empty while the overview is redone, so `/` mounts the chrome and nothing else —
+ * no request goes out, and the assertion below is that the layout's own outlet is standing and
+ * holding nothing.
  */
 
 /**
@@ -59,9 +58,8 @@ describe('App', () => {
     expect(shell.querySelector('h1')).toBeNull();
   });
 
-  it('routes the root URL to the shared layout, with the workspaces page inside it', async () => {
+  it('routes the root URL to the shared layout, with an empty outlet inside it', async () => {
     const harness = await RouterTestingHarness.create('/');
-    http.expectOne('/projects/api/projects').flush({ entries: [] });
     await harness.fixture.whenStable();
 
     const layout = harness.routeNativeElement;
@@ -72,9 +70,9 @@ describe('App', () => {
     // really has is a deployment fact the gateway answers from its own route table, so asserting
     // that number is qits-gateway's spec's job, not this one's.
     expect(layout?.querySelectorAll('nav a')).toHaveLength(NAV.length);
-    // The layout carries its own outlet; the page renders in it.
+    // The layout carries its own outlet; it is standing, and the root view puts nothing in it.
     expect(layout?.querySelector('router-outlet')).not.toBeNull();
-    expect(layout?.querySelector('app-workspaces-page')).not.toBeNull();
+    expect(layout?.querySelector('app-not-found')).toBeNull();
 
     http.verify();
   });
