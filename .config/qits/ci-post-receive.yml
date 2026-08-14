@@ -52,9 +52,9 @@ steps:
       # 404s. Measured on npm 10.9.4.
       #
       # Every address is derived from the injected env rather than spelled here: no repository
-      # states a deployment's addresses, and the two this repo does state (localhost:8081 for the
-      # @qits scope and localhost:8082 for npmjs, in .npmrc, for a developer on the host) are the
-      # ones being replaced.
+      # states a deployment's addresses, and the two this repo does state
+      # (registry.dev.localhost:8080 for the @qits scope and mirror.dev.localhost:8080 for npmjs,
+      # in .npmrc, for a developer on the host) are the ones being replaced.
       npm_hosted_origin=$(node -p 'new URL(process.env.QITS_NPM_REGISTRY_URL).origin')
       npm_proxy_origin=$(node -p 'new URL(process.env.QITS_NPM_PROXY_URL).origin')
       npm_hosted_path=$(node -p 'new URL(process.env.QITS_NPM_REGISTRY_URL).pathname')
@@ -63,11 +63,11 @@ steps:
         -e "s#(\"resolved\": \")https?://[^/\"]+($npm_hosted_path)#\1$npm_hosted_origin\2#" \
         package-lock.json
 
-      # ENVIRONMENT, not a file. This repository COMMITS an .npmrc (localhost:8081 for @qits and
-      # localhost:8082 for npmjs, right for a developer on the host), and npm ranks a project
-      # .npmrc ABOVE ~/.npmrc — so the `cat > ~/.npmrc` preamble the library repos use would be
-      # written and silently ignored. `npm_config_*` environment outranks both files, so it wins
-      # without touching the tree.
+      # ENVIRONMENT, not a file. This repository COMMITS an .npmrc (registry.dev.localhost:8080 for
+      # @qits and mirror.dev.localhost:8080 for npmjs, right for a developer on the host), and npm
+      # ranks a project .npmrc ABOVE ~/.npmrc — so the `cat > ~/.npmrc` preamble the library repos
+      # use would be written and silently ignored. `npm_config_*` environment outranks both files,
+      # so it wins without touching the tree.
       env npm_config_registry="$QITS_NPM_PROXY_URL" \
           "npm_config_@qits:registry=$QITS_NPM_REGISTRY_URL" \
           npm ci --no-audit --no-fund

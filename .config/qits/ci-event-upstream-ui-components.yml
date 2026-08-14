@@ -48,18 +48,18 @@ steps:
 
       # THE COMMITTED CANONICAL FORM, and the split gave it two origins rather than one. What is
       # pushed back has to be what a developer on the deployment HOST can install from, and .npmrc
-      # spells exactly that pair: localhost:8081 for the @qits scope (qits-artifacts) and
-      # localhost:8082 for npmjs (qits-platform-mirror). So the normalization is the retargeting
-      # written the other way round — same path anchor, same expression order — and the two agree
-      # by construction. It costs CI nothing either way, since the retargeting above accepts any
-      # origin at all; what a single-origin lockfile would break is the host developer's install,
-      # because 8081 no longer serves the npmjs cache.
+      # spells exactly that pair: registry.dev.localhost:8080 for the @qits scope (qits-artifacts)
+      # and mirror.dev.localhost:8080 for npmjs (qits-platform-mirror). So the normalization is the
+      # retargeting written the other way round — same path anchor, same expression order — and the
+      # two agree by construction. It costs CI nothing either way, since the retargeting above
+      # accepts any origin at all; what a single-origin lockfile would break is the host
+      # developer's install, because the registry vhost does not serve the npmjs cache.
       sed -i -E \
-        -e "s#(\"resolved\": \")https?://[^/\"]+#\1http://localhost:8082#" \
-        -e "s#(\"resolved\": \")https?://[^/\"]+($npm_hosted_path)#\1http://localhost:8081\2#" \
+        -e "s#(\"resolved\": \")https?://[^/\"]+#\1http://mirror.dev.localhost:8080#" \
+        -e "s#(\"resolved\": \")https?://[^/\"]+($npm_hosted_path)#\1http://registry.dev.localhost:8080\2#" \
         package-lock.json
       if grep '"resolved": "' package-lock.json \
-         | grep -vE '"resolved": "http://localhost:(8081|8082)/'; then
+         | grep -vE '"resolved": "http://(registry|mirror)\.dev\.localhost:8080/'; then
         echo "a foreign origin survived in package-lock.json"
         exit 1
       fi
