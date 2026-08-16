@@ -73,32 +73,38 @@ export class BrowserSpeechRuntime implements SpeechRuntime {
 
   async capture(): Promise<AudioCapture> {
     const [context, stream] = await activatedMicrophone(
-      () => new AudioContext(),
       () => navigator.mediaDevices.getUserMedia({ audio: true }),
+      () => new AudioContext(),
     );
     return new BrowserCapture(stream, context);
   }
 }
 
 /**
- * Open the audio graph while the Record click still carries browser user activation.
+ * Open the microphone first, then the Web Audio graph while the page is actively capturing.
  *
- * Creating the context only after the permission promise settles is too late in browsers that
- * suspend Web Audio outside a user gesture: MediaRecorder still produces a blob, but the analyser
- * reads permanent zeroes. Resume once before the permission boundary and once after it, because a
- * permission prompt may suspend the context again while it has focus.
+ * The Record control reaches this code through qits-button's custom `pressed` event. Chromium
+ * carries native-click activation through that event; Firefox may not, and therefore keeps a
+ * context created before getUserMedia suspended. Once getUserMedia resolves the document is an
+ * active capture document, which Firefox permits to start Web Audio. Checking the resulting state
+ * keeps a suspended graph from masquerading as a recording with a permanently flat meter.
  */
 export async function activatedMicrophone(
-  createContext: () => AudioContext,
   getStream: () => Promise<MediaStream>,
+  createContext: () => AudioContext,
 ): Promise<readonly [AudioContext, MediaStream]> {
+  const stream = await getStream();
   const context = createContext();
   try {
     await context.resume();
-    const stream = await getStream();
-    await context.resume();
+    if (context.state !== 'running') {
+      throw new DOMException('The browser kept Web Audio suspended', 'NotAllowedError');
+    }
     return [context, stream] as const;
   } catch (error) {
+    for (const track of stream.getTracks()) {
+      track.stop();
+    }
     await context.close();
     throw error;
   }

@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { activatedMicrophone, meterGraph } from './speech-runtime';
 
 describe('activatedMicrophone', () => {
-  it('resumes Web Audio inside the click before waiting for microphone permission', async () => {
+  it('starts Web Audio after permission makes Firefox an active capture document', async () => {
     const order: string[] = [];
     const context = {
+      state: 'running',
       resume: vi.fn(async () => {
         order.push('resume');
       }),
@@ -13,36 +14,52 @@ describe('activatedMicrophone', () => {
     const stream = {} as MediaStream;
 
     const opened = await activatedMicrophone(
-      () => {
-        order.push('context');
-        return context;
-      },
       async () => {
         order.push('permission');
         return stream;
       },
+      () => {
+        order.push('context');
+        return context;
+      },
     );
 
-    expect(order).toEqual(['context', 'resume', 'permission', 'resume']);
+    expect(order).toEqual(['permission', 'context', 'resume']);
     expect(opened).toEqual([context, stream]);
     expect(context.close).not.toHaveBeenCalled();
   });
 
-  it('closes the audio context when microphone permission fails', async () => {
+  it('does not create Web Audio when microphone permission fails', async () => {
     const denied = new DOMException('denied', 'NotAllowedError');
+    const createContext = vi.fn();
+
+    await expect(
+      activatedMicrophone(
+        async () => {
+          throw denied;
+        },
+        createContext,
+      ),
+    ).rejects.toBe(denied);
+    expect(createContext).not.toHaveBeenCalled();
+  });
+
+  it('closes the stream and reports a context Firefox kept suspended', async () => {
+    const stop = vi.fn();
+    const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
     const context = {
+      state: 'suspended',
       resume: vi.fn(async () => undefined),
       close: vi.fn(async () => undefined),
     } as unknown as AudioContext;
 
     await expect(
       activatedMicrophone(
+        async () => stream,
         () => context,
-        async () => {
-          throw denied;
-        },
       ),
-    ).rejects.toBe(denied);
+    ).rejects.toMatchObject({ name: 'NotAllowedError' });
+    expect(stop).toHaveBeenCalledOnce();
     expect(context.close).toHaveBeenCalledOnce();
   });
 });
