@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { activatedMicrophone } from './speech-runtime';
+import { activatedMicrophone, meterGraph } from './speech-runtime';
 
 describe('activatedMicrophone', () => {
   it('resumes Web Audio inside the click before waiting for microphone permission', async () => {
@@ -44,5 +44,29 @@ describe('activatedMicrophone', () => {
       ),
     ).rejects.toBe(denied);
     expect(context.close).toHaveBeenCalledOnce();
+  });
+});
+
+describe('meterGraph', () => {
+  it('retains a silently consumed path from the microphone to the context destination', () => {
+    const analyser = { connect: vi.fn() } as unknown as AnalyserNode;
+    const source = { connect: vi.fn() } as unknown as MediaStreamAudioSourceNode;
+    const sink = {
+      gain: { value: 1 },
+      connect: vi.fn(),
+    } as unknown as GainNode;
+    const destination = {} as AudioDestinationNode;
+    const stream = {} as MediaStream;
+    const context = {
+      destination,
+      createMediaStreamSource: vi.fn(() => source),
+      createGain: vi.fn(() => sink),
+    } as unknown as AudioContext;
+
+    expect(meterGraph(context, stream, analyser)).toEqual([source, sink]);
+    expect(source.connect).toHaveBeenCalledWith(analyser);
+    expect(analyser.connect).toHaveBeenCalledWith(sink);
+    expect(sink.connect).toHaveBeenCalledWith(destination);
+    expect(sink.gain.value).toBe(0);
   });
 });

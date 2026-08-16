@@ -106,6 +106,8 @@ export async function activatedMicrophone(
 
 class BrowserCapture implements AudioCapture {
   private readonly analyser: AnalyserNode;
+  private readonly source: MediaStreamAudioSourceNode;
+  private readonly sink: GainNode;
   private readonly samples: Uint8Array<ArrayBuffer>;
   private recorder: MediaRecorder;
   private chunks: Blob[] = [];
@@ -118,7 +120,7 @@ class BrowserCapture implements AudioCapture {
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 1024;
     this.samples = new Uint8Array(this.analyser.fftSize);
-    this.context.createMediaStreamSource(stream).connect(this.analyser);
+    [this.source, this.sink] = meterGraph(this.context, stream, this.analyser);
     this.recorder = this.newRecorder();
     this.recorder.start();
   }
@@ -154,6 +156,9 @@ class BrowserCapture implements AudioCapture {
     for (const track of this.stream.getTracks()) {
       track.stop();
     }
+    this.source.disconnect();
+    this.analyser.disconnect();
+    this.sink.disconnect();
     await this.context.close();
     return clip;
   }
@@ -210,6 +215,29 @@ class BrowserCapture implements AudioCapture {
     }
     return base64(wav(mono, audio.sampleRate));
   }
+}
+
+/**
+ * Keep the microphone graph alive and make the browser render it without audible loopback.
+ *
+ * An analyser with no downstream consumer works in Chromium, but Web Audio permits implementations
+ * to prune graph branches that cannot affect an output. A zero-gain node connected to the context
+ * destination makes this branch active while guaranteeing that microphone samples are never played
+ * into the user's headphones. Returning both nodes also gives BrowserCapture strong references for
+ * the whole recording lifetime.
+ */
+export function meterGraph(
+  context: AudioContext,
+  stream: MediaStream,
+  analyser: AnalyserNode,
+): readonly [MediaStreamAudioSourceNode, GainNode] {
+  const source = context.createMediaStreamSource(stream);
+  const sink = context.createGain();
+  sink.gain.value = 0;
+  source.connect(analyser);
+  analyser.connect(sink);
+  sink.connect(context.destination);
+  return [source, sink] as const;
 }
 
 /** A 16-bit mono PCM WAV around the samples. */
