@@ -72,21 +72,49 @@ export class BrowserSpeechRuntime implements SpeechRuntime {
   }
 
   async capture(): Promise<AudioCapture> {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    return new BrowserCapture(stream);
+    const [context, stream] = await activatedMicrophone(
+      () => new AudioContext(),
+      () => navigator.mediaDevices.getUserMedia({ audio: true }),
+    );
+    return new BrowserCapture(stream, context);
+  }
+}
+
+/**
+ * Open the audio graph while the Record click still carries browser user activation.
+ *
+ * Creating the context only after the permission promise settles is too late in browsers that
+ * suspend Web Audio outside a user gesture: MediaRecorder still produces a blob, but the analyser
+ * reads permanent zeroes. Resume once before the permission boundary and once after it, because a
+ * permission prompt may suspend the context again while it has focus.
+ */
+export async function activatedMicrophone(
+  createContext: () => AudioContext,
+  getStream: () => Promise<MediaStream>,
+): Promise<readonly [AudioContext, MediaStream]> {
+  const context = createContext();
+  try {
+    await context.resume();
+    const stream = await getStream();
+    await context.resume();
+    return [context, stream] as const;
+  } catch (error) {
+    await context.close();
+    throw error;
   }
 }
 
 class BrowserCapture implements AudioCapture {
-  private readonly context: AudioContext;
   private readonly analyser: AnalyserNode;
   private readonly samples: Uint8Array<ArrayBuffer>;
   private recorder: MediaRecorder;
   private chunks: Blob[] = [];
   private closed = false;
 
-  constructor(private readonly stream: MediaStream) {
-    this.context = new AudioContext();
+  constructor(
+    private readonly stream: MediaStream,
+    private readonly context: AudioContext,
+  ) {
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 1024;
     this.samples = new Uint8Array(this.analyser.fftSize);
