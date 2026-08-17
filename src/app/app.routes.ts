@@ -2,6 +2,7 @@ import type { Routes } from '@angular/router';
 import { QitsMainLayout } from '@qits/ui-components';
 import { WorkspaceDetailPage } from './detail/workspace-detail-page';
 import { NotFound } from './not-found/not-found';
+import { WorkspacesPage } from './overview/workspaces-page';
 
 /**
  * Two routes, both inside the platform chrome.
@@ -10,12 +11,9 @@ import { NotFound } from './not-found/not-found';
  * is entered once and then kept: every page this app grows lands in `children`, beneath the
  * layout's own outlet, and moving between them never rebuilds the sidebar.
  *
- * **The root view is empty on purpose.** What stood here was an overview of every repository on the
- * platform, each root fanning out its own workspace and branch reads. The shape did not work and is
- * being redone, so the whole of it is gone rather than patched. The route stays — componentless,
- * with no children to match — so `/` still enters the layout and leaves its outlet blank: the slot
- * the replacement lands in. Without it `/` would fall to `**` and read as a 404 at the app's own
- * front door.
+ * **The root view is intentionally small.** It lists active workspaces for the qits wrapper and
+ * offers the aggregate create flow. The project picker is already shaped as a dropdown, but only a
+ * repository named `qits-qits` is admitted until another aggregate project exists.
  *
  * **The detail route names a repository and then a workspace**, and the repository segment is not
  * decoration: qits-workspaces' listing takes a mandatory `repositoryId` and answers 404 without one,
@@ -39,7 +37,7 @@ export const routes: Routes = [
     path: '',
     component: QitsMainLayout,
     children: [
-      { path: '', children: [] },
+      { path: '', component: WorkspacesPage },
       {
         path: 'repositories/:repositoryId/workspaces/:workspaceId',
         component: WorkspaceDetailPage,

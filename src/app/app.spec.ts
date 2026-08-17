@@ -14,9 +14,8 @@ import { routes } from './app.routes';
  * business; all this repo has to prove is that it is mounted, and mounted as a *route* rather than
  * around the shell, which is what keeps it alive across navigation.
  *
- * The root view is empty while the overview is redone, so `/` mounts the chrome and nothing else —
- * no request goes out, and the assertion below is that the layout's own outlet is standing and
- * holding nothing.
+ * The root view is the small workspace overview. This shell spec supplies an empty projects result;
+ * the overview's own behavior is covered separately.
  */
 
 /**
@@ -58,8 +57,9 @@ describe('App', () => {
     expect(shell.querySelector('h1')).toBeNull();
   });
 
-  it('routes the root URL to the shared layout, with an empty outlet inside it', async () => {
+  it('routes the root URL to the workspace overview inside the shared layout', async () => {
     const harness = await RouterTestingHarness.create('/');
+    http.expectOne('/projects/api/projects').flush({ entries: [] });
     await harness.fixture.whenStable();
 
     const layout = harness.routeNativeElement;
@@ -70,8 +70,9 @@ describe('App', () => {
     // really has is a deployment fact the gateway answers from its own route table, so asserting
     // that number is qits-gateway's spec's job, not this one's.
     expect(layout?.querySelectorAll('nav a')).toHaveLength(NAV.length);
-    // The layout carries its own outlet; it is standing, and the root view puts nothing in it.
+    // The layout carries its own outlet and the root route fills it with the overview.
     expect(layout?.querySelector('router-outlet')).not.toBeNull();
+    expect(layout?.querySelector('app-workspaces-page')).not.toBeNull();
     expect(layout?.querySelector('app-not-found')).toBeNull();
 
     http.verify();

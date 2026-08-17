@@ -427,6 +427,7 @@ export interface CreateWorkspaceRequest {
   readonly branch: string;
   readonly preamble: string;
   readonly adoptExisting: boolean;
+  readonly branchTree?: boolean;
 }
 
 /** What a create answers: the workspace it just made. */
