@@ -32,10 +32,11 @@ describe('ProjectsApi', () => {
     await expect(projects).resolves.toMatchObject([{ id: 'p1', name: 'qits' }]);
   });
 
-  it('unwraps one project’s repository entries, keeping the default branch', async () => {
+  it('unwraps one project’s repository entries and its wrapper, keeping the default branch', async () => {
     // `mainBranch` is the field this app came for: it is what an integrate lands on, and it is
-    // named on screen rather than assumed to be "main".
-    const repositories = api.repositories('p1');
+    // named on screen rather than assumed to be "main". The wrapper rides along in the same answer,
+    // which is what tells the picker which of the rows is the aggregate one.
+    const components = api.components('p1');
     http.expectOne('/projects/api/projects/p1/repositories').flush({
       entries: [
         {
@@ -49,8 +50,19 @@ describe('ProjectsApi', () => {
           },
         },
       ],
+      wrapper: { repositoryId: 'qits-qits', branch: 'main', entries: [] },
     });
-    await expect(repositories).resolves.toMatchObject([{ id: 'qits-ci', mainBranch: 'main' }]);
+    await expect(components).resolves.toMatchObject({
+      repositories: [{ id: 'qits-ci', mainBranch: 'main' }],
+      wrapper: { repositoryId: 'qits-qits' },
+    });
+  });
+
+  /** A project with no wrapper holds no aggregate to branch, so the null has to survive the read. */
+  it('keeps a missing wrapper as null rather than as an empty one', async () => {
+    const components = api.components('p1');
+    http.expectOne('/projects/api/projects/p1/repositories').flush({ entries: [] });
+    await expect(components).resolves.toEqual({ repositories: [], wrapper: null });
   });
 
   it('reads a repository’s branches from its own path, not the project’s', async () => {

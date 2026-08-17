@@ -10,7 +10,14 @@ import type {
   RepositoryDto,
   RepositoryEntriesResponse,
   RepositoryResponse,
+  WrapperDto,
 } from './dto';
+
+/** One project's repositories, and the wrapper they are members of. */
+export interface ProjectComponents {
+  readonly repositories: readonly RepositoryDto[];
+  readonly wrapper: WrapperDto | null;
+}
 
 /**
  * The reads this app makes against qits-projects, and it makes them for one reason:
@@ -37,20 +44,26 @@ export class ProjectsApi {
   }
 
   /**
-   * One project's repositories.
+   * One project's repositories **and** the wrapper they belong to, from one read.
    *
    * **There is no all-repositories endpoint**, so the overview fans this out — one request per
    * project, issued in parallel and rendered as each lands. That is not a shortcut waiting to be
    * replaced by a single call: repositories are listed under the project that owns them, and the
    * service offers no other way in.
+   *
+   * The wrapper rides along in the same answer, so the picker never has to guess which row is the
+   * aggregate one. `wrapper` is null for a project that has none.
    */
-  async repositories(projectId: string): Promise<readonly RepositoryDto[]> {
+  async components(projectId: string): Promise<ProjectComponents> {
     const response = await firstValueFrom(
       this.http.get<RepositoryEntriesResponse>(
         `${this.base}/projects/api/projects/${encodeURIComponent(projectId)}/repositories`,
       ),
     );
-    return response.entries.map((entry) => entry.repository);
+    return {
+      repositories: response.entries.map((entry) => entry.repository),
+      wrapper: response.wrapper ?? null,
+    };
   }
 
   /**

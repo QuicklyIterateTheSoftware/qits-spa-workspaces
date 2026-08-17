@@ -382,9 +382,39 @@ export interface RepositoryDto {
   readonly projectId: string;
 }
 
-/** projects' repository list envelope. */
+/**
+ * One line of the wrapper's `.gitmodules`, as qits-projects read it at the wrapper's main tip.
+ *
+ * Declared for completeness of the shape; this app reads none of it. `repositoryId` is null for an
+ * entry no repository row answers to, which is the drift the projects SPA's reconcile resolves.
+ */
+export interface WrapperEntryDto {
+  readonly path: string;
+  readonly name: string;
+  readonly repositoryId: string | null;
+}
+
+/**
+ * The project's wrapper repository, and what its `.gitmodules` says.
+ *
+ * **`repositoryId` is how a wrapper is identified, and it is the only way.** A wrapper is named
+ * `<slug>-<slug>` and carries the `PROJECT` archetype, but neither is the rule: the service answers
+ * the wrapper here, per project, and a client that matched a name or an archetype would be
+ * re-deriving a fact it was handed.
+ *
+ * Null for a project with no wrapper at all — an older project, which can hold no aggregate
+ * workspace because there is no manifest to branch.
+ */
+export interface WrapperDto {
+  readonly repositoryId: string;
+  readonly branch: string;
+  readonly entries: readonly WrapperEntryDto[];
+}
+
+/** projects' repository list envelope, plus the wrapper the rows belong to. */
 export interface RepositoryEntriesResponse {
   readonly entries: readonly { readonly repository: RepositoryDto }[];
+  readonly wrapper: WrapperDto | null;
 }
 
 /**

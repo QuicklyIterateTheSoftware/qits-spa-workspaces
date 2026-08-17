@@ -1,13 +1,13 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { ProjectDto, RepositoryDto, WorkspaceDto } from '../api/dto';
 import { ProjectsApi } from '../api/projects-api';
 import { WorkspacesApi } from '../api/workspaces-api';
 import { serverMessage } from '../ui/loadable';
 
-/** One project's aggregate repository, named as the picker shows it. */
+/** One project's wrapper repository, named as the picker shows it. */
 interface Choice {
   readonly project: ProjectDto;
   readonly repository: RepositoryDto;
@@ -16,10 +16,16 @@ interface Choice {
 /**
  * The root view: the aggregate workspaces that exist, and the one form that makes another.
  *
- * **Only a repository named `qits-qits` is offered.** An aggregate workspace branches a wrapper and
- * every registered submodule under it, and this platform has exactly one such wrapper today. The
- * picker is a dropdown anyway, because the name is the only thing that limits it — the day a second
- * aggregate exists, this filter widens and nothing else on the page moves.
+ * **Every project's wrapper is offered, and only its wrapper.** An aggregate workspace branches a
+ * wrapper and every registered submodule under it, so an ordinary component repository would offer
+ * a create the service refuses. The rule is the service's own answer and not a derivation of it:
+ * the repositories read carries a `wrapper` view whose `repositoryId` names the row, and this page
+ * admits that row. It used to filter on the literal name `qits-qits`, which offered the platform's
+ * own wrapper and no other project's.
+ *
+ * **`?repository=<id>` preselects one.** The projects SPA links here from a project's own page, and
+ * an id naming no admitted wrapper is ignored — a stale link lands on the ordinary first choice
+ * rather than on an empty picker.
  *
  * **The list needs a repository before it can be read.** qits-workspaces' listing takes a mandatory
  * `repositoryId`, so with no choice admitted there is nothing to ask for and the page shows an empty
@@ -41,6 +47,7 @@ export class WorkspacesPage implements OnInit {
   private readonly projectsApi = inject(ProjectsApi);
   private readonly workspacesApi = inject(WorkspacesApi);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly choices = signal<readonly Choice[]>([]);
   protected readonly workspaces = signal<readonly WorkspaceDto[]>([]);
@@ -56,16 +63,18 @@ export class WorkspacesPage implements OnInit {
       const candidates = await Promise.all(
         projects.map(async (project) => ({
           project,
-          repositories: await this.projectsApi.repositories(project.id),
+          components: await this.projectsApi.components(project.id),
         })),
       );
-      const choices = candidates.flatMap(({ project, repositories }) =>
-        repositories
-          .filter((repository) => repository.name === 'qits-qits')
-          .map((repository) => ({ project, repository })),
-      );
+      const choices = candidates.flatMap(({ project, components }) => {
+        const wrapperId = components.wrapper?.repositoryId;
+        const repository = components.repositories.find((entry) => entry.id === wrapperId);
+        // A wrapper the row list does not hold is drift the projects SPA reconciles; there is no
+        // repository here to branch, so the project simply offers no choice.
+        return repository ? [{ project, repository }] : [];
+      });
       this.choices.set(choices);
-      this.selectedRepositoryId = choices[0]?.repository.id ?? '';
+      this.selectedRepositoryId = this.preselected(choices) ?? choices[0]?.repository.id ?? '';
       await this.reload();
     } catch (failure) {
       this.error.set(this.message(failure, 'Could not load workspaces.'));
@@ -117,6 +126,18 @@ export class WorkspacesPage implements OnInit {
     } finally {
       this.creating.set(false);
     }
+  }
+
+  /**
+   * The wrapper `?repository=` asks for, when the picker actually holds it.
+   *
+   * An id that names nothing admitted answers null and the first choice stands. A link carried over
+   * from a deleted project, or to a repository that is not a wrapper, is a stale link and not an
+   * error worth stopping on.
+   */
+  private preselected(choices: readonly Choice[]): string | null {
+    const asked = this.route.snapshot.queryParamMap.get('repository');
+    return choices.some((choice) => choice.repository.id === asked) ? asked : null;
   }
 
   private async reload(): Promise<void> {

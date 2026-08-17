@@ -11,9 +11,10 @@ import { WorkspacesPage } from './overview/workspaces-page';
  * is entered once and then kept: every page this app grows lands in `children`, beneath the
  * layout's own outlet, and moving between them never rebuilds the sidebar.
  *
- * **The root view is intentionally small.** It lists active workspaces for the qits wrapper and
- * offers the aggregate create flow. The project picker is already shaped as a dropdown, but only a
- * repository named `qits-qits` is admitted until another aggregate project exists.
+ * **The root view is intentionally small.** It lists active workspaces for the picked wrapper and
+ * offers the aggregate create flow. The picker holds one wrapper per project — the row qits-projects
+ * names as the wrapper — and `?repository=<id>` preselects one, which is how the projects SPA links
+ * a project straight to its own aggregate create.
  *
  * **The detail route names a repository and then a workspace**, and the repository segment is not
  * decoration: qits-workspaces' listing takes a mandatory `repositoryId` and answers 404 without one,
