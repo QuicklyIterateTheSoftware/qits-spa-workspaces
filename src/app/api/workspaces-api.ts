@@ -215,11 +215,22 @@ export class WorkspacesApi {
    *
    * The note is the whole record of what was tried, so it is worth asking for — after this call the
    * workspace leaves the active list and only the history record remains.
+   *
+   * **`ignoreChanges` is the confirmed override of the clean-working-tree guard**, sent as
+   * `?ignore-changes=true` on the URL — deliberately never part of the body, so the ordinary call
+   * cannot carry it by accident. The first press always goes without it; only after the service has
+   * refused with "uncommitted changes" and the person has confirmed that exact loss does a second
+   * call spell it out.
    */
-  async discard(workspaceId: number, result: string): Promise<DiscardResponse> {
+  async discard(
+    workspaceId: number,
+    result: string,
+    ignoreChanges = false,
+  ): Promise<DiscardResponse> {
+    const suffix = ignoreChanges ? '?ignore-changes=true' : '';
     return firstValueFrom(
       this.http.post<DiscardResponse>(
-        `${this.base}/workspaces/api/workspaces/${encodeURIComponent(workspaceId)}/discard`,
+        `${this.base}/workspaces/api/workspaces/${encodeURIComponent(workspaceId)}/discard${suffix}`,
         { result },
       ),
     );

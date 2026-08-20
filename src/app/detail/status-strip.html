@@ -116,23 +116,47 @@
             [value]="discardNote()"
             (input)="noteTyped($event)"
           ></textarea>
-          <span class="verbs">
-            <qits-button
-              variant="primary"
-              size="sm"
-              [busy]="pending() === 'discard'"
-              [disabled]="pending() !== null"
-              (pressed)="discard()"
-              >Discard this workspace</qits-button
-            >
-            <qits-button
-              variant="ghost"
-              size="sm"
-              [disabled]="pending() !== null"
-              (pressed)="cancelDiscard()"
-              >Cancel</qits-button
-            >
-          </span>
+          @if (confirmingIgnoreChanges()) {
+            <p class="fault" role="alert">
+              The working tree has uncommitted changes, and discarding will throw them away with
+              the container and the branch. There is no way back afterwards.
+            </p>
+            <span class="verbs">
+              <qits-button
+                variant="primary"
+                size="sm"
+                [busy]="pending() === 'discard'"
+                [disabled]="pending() !== null"
+                (pressed)="discardIgnoringChanges()"
+                >Discard anyway — lose the changes</qits-button
+              >
+              <qits-button
+                variant="ghost"
+                size="sm"
+                [disabled]="pending() !== null"
+                (pressed)="cancelIgnoreChanges()"
+                >Keep the workspace</qits-button
+              >
+            </span>
+          } @else {
+            <span class="verbs">
+              <qits-button
+                variant="primary"
+                size="sm"
+                [busy]="pending() === 'discard'"
+                [disabled]="pending() !== null"
+                (pressed)="discard()"
+                >Discard this workspace</qits-button
+              >
+              <qits-button
+                variant="ghost"
+                size="sm"
+                [disabled]="pending() !== null"
+                (pressed)="cancelDiscard()"
+                >Cancel</qits-button
+              >
+            </span>
+          }
         </div>
       } @else {
         <qits-button
