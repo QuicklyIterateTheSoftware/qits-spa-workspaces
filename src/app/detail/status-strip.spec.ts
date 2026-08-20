@@ -177,4 +177,84 @@ describe('StatusStrip', () => {
     expect(changes).toEqual([1]);
     expect(text(fixture)).toContain('That did not work');
   });
+
+  const press = async (fixture: Awaited<ReturnType<typeof render>>, label: string) => {
+    const button = Array.from(fixture.nativeElement.querySelectorAll('button')).find(
+      (candidate: unknown) => (candidate as HTMLButtonElement).textContent?.trim() === label,
+    ) as HTMLButtonElement;
+    expect(button, `a button labelled "${label}"`).toBeTruthy();
+    button.click();
+    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+  };
+
+  it('escalates to the ignore-changes confirmation only after the guard refuses', async () => {
+    const fixture = await render({ clean: false });
+    await press(fixture, 'Discard…');
+    await press(fixture, 'Discard this workspace');
+
+    // The first request must be incapable of losing work: no override parameter, ever.
+    TestBed.inject(HttpTestingController)
+      .expectOne('/workspaces/api/workspaces/7/discard')
+      .flush(
+        { message: "Cannot abandon workspace 'task-widgets': it has uncommitted changes." },
+        { status: 400, statusText: 'Bad Request' },
+      );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    // The refusal becomes the second confirmation, not an error message.
+    expect(text(fixture)).toContain('no way back');
+    expect(text(fixture)).not.toContain('That did not work');
+
+    await press(fixture, 'Discard anyway — lose the changes');
+    TestBed.inject(HttpTestingController)
+      .expectOne('/workspaces/api/workspaces/7/discard?ignore-changes=true')
+      .flush({ success: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(text(fixture)).not.toContain('no way back');
+  });
+
+  it('keeps every other discard failure an ordinary failure', async () => {
+    const fixture = await render();
+    await press(fixture, 'Discard…');
+    await press(fixture, 'Discard this workspace');
+
+    TestBed.inject(HttpTestingController)
+      .expectOne('/workspaces/api/workspaces/7/discard')
+      .flush({ message: 'the git host is unreachable' }, { status: 500, statusText: 'Server Error' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(text(fixture)).toContain('That did not work');
+    expect(text(fixture)).not.toContain('Discard anyway');
+  });
+
+  it('leaves the escalation behind when the confirmation is declined', async () => {
+    const fixture = await render({ clean: false });
+    await press(fixture, 'Discard…');
+    await press(fixture, 'Discard this workspace');
+    TestBed.inject(HttpTestingController)
+      .expectOne('/workspaces/api/workspaces/7/discard')
+      .flush(
+        { message: 'it has uncommitted changes' },
+        { status: 400, statusText: 'Bad Request' },
+      );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    await press(fixture, 'Keep the workspace');
+
+    expect(text(fixture)).not.toContain('no way back');
+    // Declining drops back to the plain form (the note survives), and the next attempt is plain
+    // again: declining must not leave the override armed.
+    await press(fixture, 'Discard this workspace');
+    TestBed.inject(HttpTestingController)
+      .expectOne('/workspaces/api/workspaces/7/discard')
+      .flush({ success: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 });

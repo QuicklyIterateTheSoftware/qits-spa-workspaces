@@ -103,6 +103,13 @@ export class StatusStrip {
   protected readonly discarding = signal(false);
   protected readonly discardNote = signal('');
 
+  /**
+   * The second confirmation, shown only after a plain discard was refused by the clean-tree guard.
+   * Confirming re-sends the discard with `?ignore-changes=true` — the one spelling of "lose the
+   * uncommitted changes on purpose", available nowhere but this dialog.
+   */
+  protected readonly confirmingIgnoreChanges = signal(false);
+
   protected readonly runtimeTone = computed<QitsBadgeTone>(
     () => RUNTIME_TONES[this.workspace().runtimeStatus ?? ''] ?? 'neutral',
   );
@@ -191,6 +198,7 @@ export class StatusStrip {
   protected cancelDiscard(): void {
     this.discarding.set(false);
     this.discardNote.set('');
+    this.confirmingIgnoreChanges.set(false);
   }
 
   protected noteTyped(event: Event): void {
@@ -198,10 +206,33 @@ export class StatusStrip {
   }
 
   protected async discard(): Promise<void> {
+    // Always plain first: the request that could lose uncommitted work is only ever sent after the
+    // service has refused this one and the person has confirmed that exact loss below.
     await this.run('discard', () => this.api.discard(this.workspace().id, this.discardNote()));
+    const failure = this.failure();
+    if (!failure) {
+      this.cancelDiscard();
+      return;
+    }
+    // The clean-tree guard's own words — the same sentence the domain suite asserts, so matching
+    // on it is matching the contract, not scraping. Any other failure stays an ordinary failure.
+    if (failure.includes('uncommitted changes')) {
+      this.failure.set(null);
+      this.confirmingIgnoreChanges.set(true);
+    }
+  }
+
+  protected async discardIgnoringChanges(): Promise<void> {
+    await this.run('discard', () =>
+      this.api.discard(this.workspace().id, this.discardNote(), true),
+    );
     if (!this.failure()) {
       this.cancelDiscard();
     }
+  }
+
+  protected cancelIgnoreChanges(): void {
+    this.confirmingIgnoreChanges.set(false);
   }
 
   /**
