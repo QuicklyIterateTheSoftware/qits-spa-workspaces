@@ -30,6 +30,16 @@
         Workspace branch
         <input name="branch" [(ngModel)]="branch" required maxlength="120" autocomplete="off" />
       </label>
+      <label class="checkbox">
+        <input type="checkbox" name="admin" [(ngModel)]="admin" />
+        <span>
+          Enable docker socket
+          <small>
+            Admin mode: the container can drive the host's docker daemon, which makes it
+            root-equivalent on the host. Only for administrative work.
+          </small>
+        </span>
+      </label>
       <button type="submit" [disabled]="creating() || !selectedRepositoryId || !branch.trim()">
         {{ creating() ? 'Creating…' : 'Create workspace' }}
       </button>
@@ -54,6 +64,11 @@
           <li>
             <a [routerLink]="['/repositories', selectedRepositoryId, 'workspaces', workspace.id]">
               <strong>{{ workspace.branch || workspace.workspaceId }}</strong>
+              @if (workspace.admin) {
+                <span class="admin-badge" title="Admin mode: this container holds the host's docker socket">
+                  docker socket
+                </span>
+              }
               <span>{{ workspace.runtimeStatus?.toLowerCase() ?? 'runtime unknown' }}</span>
             </a>
           </li>
