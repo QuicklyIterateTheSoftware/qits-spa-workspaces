@@ -31,6 +31,12 @@ interface Choice {
  * `repositoryId`, so with no choice admitted there is nothing to ask for and the page shows an empty
  * list rather than a failed request.
  *
+ * **"Enable docker socket" is admin mode, and it is per workspace.** Ticked, the create asks
+ * qits-workspaces for a workspace whose container holds the host's docker socket — which makes that
+ * container root-equivalent on the host — so administration can be done from inside a workspace. It
+ * starts unticked on every press, is never remembered, and the list marks the workspaces that hold
+ * it: a privilege nobody can see is one nobody gives back.
+ *
  * **Create is three steps in a fixed order**: the service forks the branch tree, the container is
  * then asked to start, and only then does the page navigate to the detail view — which is where the
  * starting process is actually watched. Navigating first would leave the container unstarted if the
@@ -56,6 +62,16 @@ export class WorkspacesPage implements OnInit {
   protected readonly error = signal<string | null>(null);
   protected branch = 'adhoc-changes';
   protected selectedRepositoryId = '';
+
+  /**
+   * The admin-mode checkbox: create this workspace with the host's docker socket mounted.
+   *
+   * **It resets to false and is never remembered.** A container holding that socket is
+   * root-equivalent on the host, so the answer has to be given per workspace rather than inherited
+   * from the last one somebody made — a sticky preference here would grant the socket to workspaces
+   * nobody thought about.
+   */
+  protected admin = false;
 
   async ngOnInit(): Promise<void> {
     try {
@@ -115,6 +131,10 @@ export class WorkspacesPage implements OnInit {
         preamble: '',
         adoptExisting: false,
         branchTree: true,
+        // The posture, as the checkbox stands at the moment of the press. Sent explicitly rather
+        // than omitted-when-false so the request says what was asked for either way; the service
+        // reads a missing field as no, which is what every other caller relies on.
+        admin: this.admin,
       });
       await this.workspacesApi.ensureContainer(created.id);
       await this.router.navigate(['/repositories', choice.repository.id, 'workspaces', created.id]);

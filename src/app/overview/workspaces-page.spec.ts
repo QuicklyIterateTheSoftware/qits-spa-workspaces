@@ -302,6 +302,8 @@ describe('WorkspacesPage', () => {
       preamble: '',
       adoptExisting: false,
       branchTree: true,
+      // Untouched checkbox, and the request says so rather than staying silent about it.
+      admin: false,
     });
     create.flush({ workspace: workspace() });
     await settle(component);
@@ -310,6 +312,50 @@ describe('WorkspacesPage', () => {
     await settle(component);
 
     expect(TestBed.inject(Location).path()).toBe('/repositories/qits-qits/workspaces/12');
+  });
+
+  it('asks for the docker socket only when the checkbox was ticked', async () => {
+    const component = await open();
+
+    const checkbox = (component.nativeElement as HTMLElement).querySelector(
+      'input[name="admin"]',
+    ) as HTMLInputElement;
+    // The default is the whole claim: a workspace is ordinary unless somebody said otherwise, and
+    // the container of an ordinary workspace holds no socket.
+    expect(checkbox.checked).toBe(false);
+
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change'));
+    await settle(component);
+
+    await submit(component);
+
+    const create = http.expectOne('/workspaces/api/workspaces');
+    expect((create.request.body as { admin: boolean }).admin).toBe(true);
+    create.flush({ workspace: workspace({ admin: true }) });
+    await settle(component);
+
+    http.expectOne('/workspaces/api/workspaces/12/ensure-container').flush({});
+    await settle(component);
+  });
+
+  it('says which workspaces hold the socket', async () => {
+    // A privileged workspace has to be visible as one from the list. It is the only place somebody
+    // scanning the platform would notice a socket granted for one afternoon and never given back.
+    const component = await open({
+      workspaces: [workspace({ branch: 'admin-work', admin: true })],
+    });
+
+    // The badge, not the page text: the create form's own checkbox says "docker socket" too, so a
+    // text match would pass on a list that marks nothing.
+    const badge = (component.nativeElement as HTMLElement).querySelector('li .admin-badge');
+    expect(badge?.textContent).toContain('docker socket');
+  });
+
+  it('leaves the ordinary workspaces unmarked', async () => {
+    const component = await open({ workspaces: [workspace({ branch: 'ordinary' })] });
+
+    expect((component.nativeElement as HTMLElement).querySelector('li .admin-badge')).toBeNull();
   });
 
   it('keeps the service’s own words when a create is refused, and re-reads the list', async () => {

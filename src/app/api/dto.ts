@@ -82,6 +82,17 @@ export interface WorkspaceDto {
    * not send it yet", and the tree sorts those rows last instead of pretending they are old.
    */
   readonly createdAt?: string;
+
+  /**
+   * Whether this workspace runs in **admin mode** — its container holds the host's docker socket,
+   * which makes it root-equivalent on the host.
+   *
+   * Decided in the request that created the workspace and never afterwards, so it is a fact about
+   * the workspace rather than about its current container. **Optional**, for the reason `createdAt`
+   * is: a service that predates the posture answers nothing here, and `undefined` says that rather
+   * than claiming the workspace is ordinary. Read it as privileged only when it is literally `true`.
+   */
+  readonly admin?: boolean;
 }
 
 /** The workspace list envelope: entries, each wrapping the thing it lists. */
@@ -458,6 +469,16 @@ export interface CreateWorkspaceRequest {
   readonly preamble: string;
   readonly adoptExisting: boolean;
   readonly branchTree?: boolean;
+
+  /**
+   * Ask for **admin mode**: the workspace's container is launched with the host's docker socket
+   * bound into it, so platform administration can be done from inside the workspace.
+   *
+   * Optional and **omitted means no** — a body without it creates an ordinary workspace, which is
+   * what every caller on this SPA but the ad-hoc creator's checkbox sends. The service decides it
+   * once, at creation; no request afterwards can promote a workspace.
+   */
+  readonly admin?: boolean;
 }
 
 /** What a create answers: the workspace it just made. */
