@@ -1,42 +1,35 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
+  afterNextRender,
   computed,
   effect,
+  inject,
   input,
   output,
+  signal,
   viewChild,
 } from '@angular/core';
+import type { FitAddon } from '@xterm/addon-fit';
+import type { IDisposable, Terminal } from '@xterm/xterm';
+import type { TerminalFrames } from './terminal-socket';
 
-/**
- * The screen and the keyboard: a PTY you can read and type into.
- *
- * It renders what {@link ./ansi-screen#AnsiScreen} already resolved — the emulation is *not* here, so
- * swapping in xterm.js later replaces two files and touches nothing that resolves a session.
- *
- * **Keys are translated here, not on the socket**, because this is the only place that knows a
- * `KeyboardEvent`. The translation is the small standard one: Enter is a carriage return (a PTY in
- * canonical mode expects `\r`, and sending `\n` is the classic "my Enter does nothing" bug),
- * Backspace is DEL rather than BS, the arrows are their escape sequences, and `Ctrl`+letter is the
- * control character it names. Anything a browser handles better than a terminal — copy, paste, the
- * page's own shortcuts — is left alone rather than swallowed.
- */
+export interface TerminalSize {
+  readonly cols: number;
+  readonly rows: number;
+}
+
+/** A real xterm.js terminal over the daemon's raw PTY frame stream. */
 @Component({
   selector: 'app-terminal-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div
-      #screen
-      class="screen"
-      tabindex="0"
-      role="textbox"
-      aria-multiline="true"
-      [attr.aria-label]="label()"
-      (keydown)="onKey($event)"
-      (paste)="onPaste($event)"
-    >
-      <pre>{{ text() }}</pre>
+    <div #host class="terminal-host" [attr.aria-label]="label()">
+      @if (!ready()) {
+        <pre class="loading-screen" role="log">{{ pendingText() }}</pre>
+      }
     </div>
     <p class="hint">{{ hint() }}</p>
   `,
@@ -44,26 +37,25 @@ import {
     :host {
       display: block;
     }
-    .screen {
-      max-height: 26rem;
-      overflow: auto;
-      padding: 0.6rem 0.75rem;
+    .terminal-host {
+      box-sizing: border-box;
+      height: min(26rem, 55vh);
+      min-height: 12rem;
+      overflow: hidden;
+      padding: 0.5rem;
       border: 1px solid #1f2937;
       border-radius: 0.375rem;
       background: #111827;
-      color: #e5e7eb;
     }
-    .screen:focus {
-      outline: 2px solid #2563eb;
-      outline-offset: 1px;
+    .terminal-host:focus-within {
+      outline: 2px solid #93c5fd;
+      outline-offset: -2px;
     }
-    pre {
+    .loading-screen {
       margin: 0;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.8rem;
-      line-height: 1.35;
+      color: #e5e7eb;
+      font: 0.8rem/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
       white-space: pre-wrap;
-      word-break: break-word;
     }
     .hint {
       margin: 0.35rem 0 0;
@@ -73,106 +65,109 @@ import {
   `,
 })
 export class TerminalView {
-  /** The screen, already emulated. */
-  readonly lines = input.required<readonly string[]>();
-
-  /** What a screen reader calls this terminal. */
+  readonly frames = input.required<TerminalFrames>();
   readonly label = input('Agent session');
-
-  /** Whether keystrokes go anywhere. A detached terminal is readable and inert. */
   readonly attached = input(false);
-
-  /** One keystroke, or one pasted run of text, as the bytes the PTY should receive. */
   readonly data = output<string>();
+  readonly resized = output<TerminalSize>();
 
-  private readonly screen = viewChild<ElementRef<HTMLElement>>('screen');
-
-  protected readonly text = computed(() => this.lines().join('\n'));
-
+  private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
+  protected readonly ready = signal(false);
+  protected readonly pendingText = computed(() => this.frames().chunks.join(''));
   protected readonly hint = computed(() =>
     this.attached()
-      ? 'Click the screen and type. Keystrokes go straight to the agent.'
-      : 'Not attached — this is the last screen the session painted.',
+      ? 'Click the terminal and type; paste with Ctrl+V. Input goes straight to the agent.'
+      : 'Not attached — this is the last frame the session painted.',
   );
 
+  private terminal: Terminal | null = null;
+  private fitAddon: FitAddon | null = null;
+  private observer: ResizeObserver | null = null;
+  private disposables: IDisposable[] = [];
+  private generation = -1;
+  private written = 0;
+  private destroyed = false;
+
   constructor() {
-    // Follow the tail, the way a terminal does. Reading the text is what makes this run on output.
+    afterNextRender(() => void this.mount());
+
     effect(() => {
-      this.text();
-      const element = this.screen()?.nativeElement;
-      if (element) {
-        element.scrollTop = element.scrollHeight;
+      const frames = this.frames();
+      if (!this.ready() || !this.terminal) return;
+      if (frames.generation !== this.generation) {
+        this.terminal.reset();
+        this.generation = frames.generation;
+        this.written = 0;
       }
+      for (const chunk of frames.chunks.slice(this.written)) this.terminal.write(chunk);
+      this.written = frames.chunks.length;
     });
+
+    effect(() => {
+      const attached = this.attached();
+      if (this.ready() && this.terminal) this.terminal.options.disableStdin = !attached;
+    });
+
+    inject(DestroyRef).onDestroy(() => this.destroy());
   }
 
-  protected onKey(event: KeyboardEvent): void {
-    if (!this.attached()) {
-      return;
+  private async mount(): Promise<void> {
+    // xterm.js requires matchMedia for DPR tracking. Keeping the raw-frame fallback visible makes
+    // server-side and DOM-only test renderers useful without pretending they can emulate a terminal.
+    if (!this.host().nativeElement.ownerDocument.defaultView?.matchMedia) return;
+    const [{ Terminal }, { FitAddon }] = await Promise.all([
+      import('@xterm/xterm'),
+      import('@xterm/addon-fit'),
+    ]);
+    if (this.destroyed) return;
+
+    const terminal = new Terminal({
+      allowProposedApi: false,
+      convertEol: false,
+      cursorBlink: true,
+      disableStdin: !this.attached(),
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontSize: 13,
+      screenReaderMode: true,
+      scrollback: 6000,
+      theme: { background: '#111827', foreground: '#e5e7eb' },
+    });
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(this.host().nativeElement);
+    terminal.textarea?.setAttribute('aria-label', `${this.label()} input`);
+    this.disposables = [
+      terminal.onData((value) => {
+        if (this.attached()) this.data.emit(value);
+      }),
+      terminal.onResize(({ cols, rows }) => this.resized.emit({ cols, rows })),
+    ];
+    this.terminal = terminal;
+    this.fitAddon = fitAddon;
+
+    if (typeof ResizeObserver !== 'undefined') {
+      this.observer = new ResizeObserver(() => this.fit());
+      this.observer.observe(this.host().nativeElement);
     }
-    const data = translate(event);
-    if (data === null) {
-      return;
-    }
-    event.preventDefault();
-    this.data.emit(data);
+    this.fit();
+    this.ready.set(true);
+    terminal.focus();
   }
 
-  protected onPaste(event: ClipboardEvent): void {
-    if (!this.attached()) {
-      return;
-    }
-    const text = event.clipboardData?.getData('text') ?? '';
-    if (text) {
-      event.preventDefault();
-      this.data.emit(text);
+  private fit(): void {
+    try {
+      this.fitAddon?.fit();
+    } catch {
+      // A hidden tab has no measurable cell geometry. Its ResizeObserver retries when visible.
     }
   }
-}
 
-/** The bytes a key means, or null for a key this terminal should not eat. */
-function translate(event: KeyboardEvent): string | null {
-  if (event.metaKey) {
-    // Every meta chord on every platform belongs to the browser or the OS, never to the PTY.
-    return null;
-  }
-  if (event.ctrlKey && event.key.length === 1) {
-    const upper = event.key.toUpperCase();
-    if (upper === 'V' || upper === 'C') {
-      // Paste keeps its own handler; copy must keep working on a selected screen.
-      return null;
-    }
-    const code = upper.charCodeAt(0);
-    return code >= 64 && code <= 95 ? String.fromCharCode(code - 64) : null;
-  }
-  switch (event.key) {
-    case 'Enter':
-      return '\r';
-    case 'Backspace':
-      return '\u007f';
-    case 'Tab':
-      return '\t';
-    case 'Escape':
-      return '\u001b';
-    case 'ArrowUp':
-      return '\u001b[A';
-    case 'ArrowDown':
-      return '\u001b[B';
-    case 'ArrowRight':
-      return '\u001b[C';
-    case 'ArrowLeft':
-      return '\u001b[D';
-    case 'Home':
-      return '\u001b[H';
-    case 'End':
-      return '\u001b[F';
-    case 'Delete':
-      return '\u001b[3~';
-    case 'PageUp':
-      return '\u001b[5~';
-    case 'PageDown':
-      return '\u001b[6~';
-    default:
-      return event.key.length === 1 ? event.key : null;
+  private destroy(): void {
+    this.destroyed = true;
+    this.observer?.disconnect();
+    this.disposables.forEach((disposable) => disposable.dispose());
+    this.terminal?.dispose();
+    this.terminal = null;
+    this.fitAddon = null;
   }
 }

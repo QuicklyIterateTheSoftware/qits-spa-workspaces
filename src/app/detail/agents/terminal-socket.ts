@@ -1,6 +1,16 @@
 import { signal, type Signal } from '@angular/core';
 import { WEB_SOCKET_OPEN, type WebSocketFactory, type WebSocketLike } from '../../api/web-socket';
-import { AnsiScreen, DEFAULT_COLS, DEFAULT_ROWS } from './ansi-screen';
+
+const DEFAULT_COLS = 100;
+const DEFAULT_ROWS = 30;
+
+/** Raw PTY frames since the latest attachment. xterm.js, not the socket, interprets them. */
+export interface TerminalFrames {
+  readonly generation: number;
+  readonly chunks: readonly string[];
+}
+
+export const EMPTY_TERMINAL_FRAMES: TerminalFrames = { generation: 0, chunks: [] };
 
 /** The backoff ladder, capped where the contract caps it. Five attempts, then the budget is spent. */
 export const TERMINAL_BACKOFF_MS: readonly number[] = [500, 1000, 2000, 4000, 4000];
@@ -40,12 +50,11 @@ const CLEAN_CLOSE = 1000;
  * to a dead process is how a terminal ends up permanently showing someone else's exit.
  */
 export class TerminalSocket {
-  private readonly screen: AnsiScreen;
-  private readonly painted = signal<readonly string[]>([]);
+  private readonly received = signal<TerminalFrames>(EMPTY_TERMINAL_FRAMES);
   private readonly link = signal<TerminalLink>('connecting');
 
-  /** The screen, as lines. Re-read whole on every frame, which is what an `OnPush` view wants. */
-  readonly lines: Signal<readonly string[]> = this.painted.asReadonly();
+  /** Raw frames for xterm.js. A new generation means clear before replaying its chunks. */
+  readonly frames: Signal<TerminalFrames> = this.received.asReadonly();
 
   /** Where the attachment is. `lost` is "the retries are spent", which offers a manual way back. */
   readonly status: Signal<TerminalLink> = this.link.asReadonly();
@@ -63,9 +72,7 @@ export class TerminalSocket {
     private readonly url: string,
     private readonly open: WebSocketFactory,
     private readonly document: Document,
-  ) {
-    this.screen = new AnsiScreen(this.cols, this.rows);
-  }
+  ) {}
 
   /** Attach, and keep re-attaching until {@link close} or a clean server close. */
   connect(): void {
@@ -106,8 +113,6 @@ export class TerminalSocket {
   resize(cols: number, rows: number): void {
     this.cols = Math.max(1, Math.floor(cols));
     this.rows = Math.max(1, Math.floor(rows));
-    this.screen.resize(this.cols, this.rows);
-    this.paint();
     const socket = this.socket;
     if (socket && socket.readyState === WEB_SOCKET_OPEN) {
       socket.send(JSON.stringify({ type: 'resize', cols: this.cols, rows: this.rows }));
@@ -127,8 +132,7 @@ export class TerminalSocket {
     this.clearTimer();
     this.socket?.close();
     // The replay is about to repaint everything, so whatever the last attachment left is stale.
-    this.screen.reset();
-    this.paint();
+    this.received.update(({ generation }) => ({ generation: generation + 1, chunks: [] }));
     this.link.set(this.attempt === 0 ? 'connecting' : 'reconnecting');
     const socket = this.open(this.url);
     this.socket = socket;
@@ -138,8 +142,10 @@ export class TerminalSocket {
       socket.send(JSON.stringify({ type: 'resize', cols: this.cols, rows: this.rows }));
     };
     socket.onmessage = (event) => {
-      this.screen.write(event.data);
-      this.paint();
+      this.received.update((current) => ({
+        ...current,
+        chunks: [...current.chunks, event.data],
+      }));
     };
     socket.onclose = (event) => this.handleClose(event);
     socket.onerror = () => {
@@ -166,10 +172,6 @@ export class TerminalSocket {
     this.attempt += 1;
     this.link.set('reconnecting');
     this.timer = setTimeout(() => this.attach(), wait);
-  }
-
-  private paint(): void {
-    this.painted.set(this.screen.lines());
   }
 
   private clearTimer(): void {
