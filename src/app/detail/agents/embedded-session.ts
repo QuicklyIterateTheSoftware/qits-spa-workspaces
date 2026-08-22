@@ -57,10 +57,11 @@ import { TerminalView } from './terminal-view';
             every workspace at once. When this terminal exits, the launch you asked for is replayed.
           </p>
           <app-terminal-view
-            [lines]="session.lines()"
+            [frames]="session.frames()"
             [attached]="attached()"
             label="Agent sign-in terminal"
             (data)="session.send($event)"
+            (resized)="session.resize($event.cols, $event.rows)"
           />
         </div>
       }
@@ -74,9 +75,10 @@ import { TerminalView } from './terminal-view';
             </qits-button>
           }
           <app-terminal-view
-            [lines]="session.lines()"
+            [frames]="session.frames()"
             [attached]="attached()"
             (data)="session.send($event)"
+            (resized)="session.resize($event.cols, $event.rows)"
           />
         </div>
       }

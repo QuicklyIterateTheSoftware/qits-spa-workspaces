@@ -11,7 +11,7 @@ import { WEB_SOCKET_FACTORY } from '../../api/web-socket';
 import { WorkspaceCommands } from '../../api/workspace-commands';
 import { WorkspaceDaemonApi } from '../../api/workspace-daemon-api';
 import { IDLE, LOADING, failed, ready, type Loadable } from '../../ui/loadable';
-import { TerminalSocket } from './terminal-socket';
+import { EMPTY_TERMINAL_FRAMES, TerminalSocket } from './terminal-socket';
 
 /**
  * Where the embedded session has landed.
@@ -110,8 +110,8 @@ export class AgentSession {
   /**
    * The attachment, as a signal rather than a field.
    *
-   * It is read *through* by {@link lines} and {@link link}, so replacing the socket re-points both
-   * without copying anything: a computed that reads `socketRef()?.lines()` re-tracks the new
+   * It is read *through* by {@link frames} and {@link link}, so replacing the socket re-points both
+   * without copying anything: a computed that reads `socketRef()?.frames()` re-tracks the new
    * socket's signal the moment the reference changes. Mirroring the screen into a second signal
    * would be one more thing to keep in step, for no reader.
    */
@@ -130,8 +130,8 @@ export class AgentSession {
   /** What went wrong, in the daemon's own words where it had any. */
   readonly problem = this.problemText.asReadonly();
 
-  /** The attached terminal's screen and link state. Empty and `disconnected` while unattached. */
-  readonly lines = computed<readonly string[]>(() => this.socketRef()?.lines() ?? []);
+  /** The attached terminal's raw PTY frames and link state. */
+  readonly frames = computed(() => this.socketRef()?.frames() ?? EMPTY_TERMINAL_FRAMES);
   readonly link = computed(() => this.socketRef()?.status() ?? 'disconnected');
 
   constructor() {
