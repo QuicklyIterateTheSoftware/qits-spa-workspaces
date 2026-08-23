@@ -79,11 +79,11 @@ describe('TerminalSocket', () => {
     expect(sockets[0].sent).toContain(JSON.stringify({ type: 'resize', cols: 120, rows: 40 }));
   });
 
-  it('paints what the replay writes', () => {
+  it('preserves raw PTY frames for xterm.js', () => {
     const terminal = attach();
     sockets[0].connect();
     sockets[0].deliver('hello\r\nagent');
-    expect(terminal.lines()).toEqual(['hello', 'agent']);
+    expect(terminal.frames().chunks).toEqual(['hello\r\nagent']);
   });
 
   it('sends keystrokes as data frames, and drops them while detached', () => {
@@ -112,7 +112,7 @@ describe('TerminalSocket', () => {
     expect(terminal.status()).toBe('reconnecting');
     vi.advanceTimersByTime(TERMINAL_BACKOFF_MS[0]);
     expect(sockets).toHaveLength(2);
-    expect(terminal.lines()).toEqual([]);
+    expect(terminal.frames().chunks).toEqual([]);
   });
 
   it('spends its budget and then says so rather than retrying forever', () => {
