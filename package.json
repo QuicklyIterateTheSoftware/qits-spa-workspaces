@@ -1,6 +1,6 @@
 {
   "name": "qits-spa-workspaces",
-  "version": "2026.823.60714",
+  "version": "2026.823.114457",
   "private": true,
   "description": "The platform's workspaces UI: an Angular application that consumes @qits/ui-components from qits' own npm registry. It ships no image \u2014 qits-workspaces serves it at /workspaces/ via Quinoa.",
   "license": "MIT",
