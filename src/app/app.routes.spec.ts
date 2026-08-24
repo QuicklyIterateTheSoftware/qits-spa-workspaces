@@ -12,14 +12,15 @@ import { NotFound } from './not-found/not-found';
 import { WorkspacesPage } from './overview/workspaces-page';
 
 /**
- * One page, two spellings of every address.
+ * One page, three spellings of every address.
  *
- * This application is served at the root of its own host, so `/repositories/r1/workspaces/12` and
- * `/qits/services/qits-ci/repositories/r1/workspaces/12` are the same workspace seen with and
- * without the repository the reader came in through. Both have to reach the same component.
+ * This application is served at the root of its own host, so `/repositories/r1/workspaces/12`,
+ * `/qits/repositories/r1/workspaces/12` and `/qits/services/qits-ci/repositories/r1/workspaces/12`
+ * are the same workspace seen unscoped, under a project and under the repository the reader came in
+ * through. All three have to reach the same component.
  *
  * The trap the guard exists for is the other direction: `repositories` is not a project slug, and
- * without `canMatch` on the category the scoped branch would claim this application's own three
+ * without `canMatch` on the category the repository branch would claim this application's own three
  * leading segments as a project, a category and a repository.
  */
 describe('routes', () => {
@@ -82,6 +83,21 @@ describe('routes', () => {
   it('lets its own literal segments win over the scoped form', async () => {
     // `repositories` would otherwise read as a project slug and `r1` as a category.
     expect(await activated('/repositories/r1/nope')).toBe(NotFound);
+  });
+
+  it('serves the overview under a project', async () => {
+    // Where the chrome's project picker sends this app when a reader picks `qits`.
+    expect(await activated('/qits')).toBe(WorkspacesPage);
+  });
+
+  it('serves a workspace under a project', async () => {
+    expect(await activated('/qits/repositories/r1/workspaces/12')).toBe(WorkspaceDetailPage);
+  });
+
+  it('lets its own literal segments win over the project form', async () => {
+    // `/repositories/r1/workspaces/12` is this app's detail page, never a project called
+    // `repositories`.
+    expect(await activated('/repositories/r1/workspaces/12')).toBe(WorkspaceDetailPage);
   });
 
   it('refuses a middle segment that is not a category', async () => {
