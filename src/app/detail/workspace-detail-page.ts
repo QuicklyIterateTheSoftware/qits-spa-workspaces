@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
+import { QITS_SCOPE, scopeCommands } from '@qits/ui-components';
 import type { RepositoryDto, WorkspaceDto, WorkspaceHistoryDetailDto } from '../api/dto';
 import { ProjectsApi } from '../api/projects-api';
 import { WorkspaceCommands } from '../api/workspace-commands';
@@ -126,6 +127,14 @@ export class WorkspaceDetailPage {
   private readonly commandEntry = inject(WorkspaceCommands);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly qitsScope = inject(QITS_SCOPE);
+
+  /**
+   * Where this page's own links start. The same workspace is reachable bare and under the
+   * repository the reader came in through, so an absolute link written `/` would drop them out of
+   * the second form without saying so.
+   */
+  protected readonly home = computed<string[]>(() => [...scopeCommands(this.qitsScope.scope())]);
 
   private readonly params = toSignal(this.route.paramMap, { initialValue: convertToParamMap({}) });
   private readonly query = toSignal(this.route.queryParamMap, {
@@ -465,7 +474,7 @@ export class WorkspaceDetailPage {
   /** An activity-bar button: that workspace's Chat tab, which is where the next prompt goes. */
   protected openWorkspace(workspaceRowId: number): void {
     void this.router.navigate(
-      ['/repositories', this.repositoryId(), 'workspaces', workspaceRowId],
+      [...this.home(), 'repositories', this.repositoryId(), 'workspaces', workspaceRowId],
       { queryParams: { tab: 'chat' } },
     );
   }

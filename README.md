@@ -1,18 +1,25 @@
 # QitsSpaWorkspaces
 
 The workspaces UI: what is in flight in a repository, and the two doors that send a workspace home.
-Served by qits-workspaces itself at `/workspaces/` through Quinoa; it ships no image.
+Served by qits-workspaces itself at the root of its own host (`workspaces.<env>.<domain>/`) through
+Quinoa; it ships no image.
 
-- **`/workspaces/`** — a repository's live workspaces, each with the one action its branch calls
+- **`/`** — a repository's live workspaces, each with the one action its branch calls
   for: **Release** or **Integrate**.
-- **`/workspaces/repositories/{repositoryId}/workspaces/{id}?tab=…`** — one workspace's detail view:
+- **`/repositories/{repositoryId}/workspaces/{id}?tab=…`** — one workspace's detail view:
   the room you sit in while a coding agent changes it.
 
-A repository has to be picked, and the reason is a service boundary rather than a screen someone
+Both answer at a **scoped** address too — `/<projectSlug>/<category>/<repoName>/…` — which is the
+platform-wide URL grammar every SPA here shares. The pages read that scope from
+`@qits/ui-components` rather than from route parameters, so one component serves both spellings.
+
+A repository has to be named, and the reason is a service boundary rather than a screen someone
 wanted: qits-workspaces' listing takes a mandatory `repositoryId` and owns no repository listing of
-its own, so the picker is two reads against qits-projects. The choice rides in the query parameters
-(`/workspaces/?project=…&repository=…`), so a repository you work in every day is a bookmark and the
-back button means "the previous one".
+its own. **Scoped, the address names it**: the repository in the URL, or — for a project with no
+repository named — that project's wrapper, which is the row an aggregate workspace branches. The
+picker is not drawn then, because it could only contradict the URL. **Unscoped it is still the way
+in**: two reads against qits-projects, one wrapper per project, and `?repository=<id>` preselects
+one so the projects SPA can link straight to a project's own create.
 
 ## The detail view
 
