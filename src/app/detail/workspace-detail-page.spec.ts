@@ -6,6 +6,7 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { provideQitsRepositoryList, provideQitsScope } from '@qits/ui-components';
 import type { WorkspaceDto } from '../api/dto';
 import { EVENT_SOURCE_FACTORY, type EventSourceLike } from '../api/event-source';
 import { routes } from '../app.routes';
@@ -88,6 +89,10 @@ describe('WorkspaceDetailPage', () => {
         provideLocationMocks(),
         provideHttpClient(),
         provideHttpClientTesting(),
+        // The chrome's two reads, as literals: with no project scoped they answer nothing, which
+        // is the unscoped page these specs are about.
+        provideQitsRepositoryList([]),
+        provideQitsScope('repository'),
         {
           provide: EVENT_SOURCE_FACTORY,
           useValue: (url: string) => {

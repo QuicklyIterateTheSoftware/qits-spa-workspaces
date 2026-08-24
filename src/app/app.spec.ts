@@ -4,7 +4,12 @@ import { TestBed } from '@angular/core/testing';
 import { provideLocationMocks } from '@angular/common/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { provideQitsNavigationLinks, type QitsNavLink } from '@qits/ui-components';
+import {
+  provideQitsNavigationLinks,
+  type QitsNavLink,
+  provideQitsRepositoryList,
+  provideQitsScope,
+} from '@qits/ui-components';
 import { App } from './app';
 import { routes } from './app.routes';
 
@@ -42,6 +47,10 @@ describe('App', () => {
         provideLocationMocks(),
         provideHttpClient(),
         provideHttpClientTesting(),
+        // The chrome's two reads, as literals: with no project scoped they answer nothing, which
+        // is the unscoped page these specs are about.
+        provideQitsRepositoryList([]),
+        provideQitsScope('repository'),
         provideQitsNavigationLinks(NAV),
       ],
     });

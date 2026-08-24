@@ -1,6 +1,6 @@
 <main class="page">
   <header>
-    <p class="eyebrow">Development</p>
+    <p class="eyebrow">{{ scopeLabel() || 'Development' }}</p>
     <h1>Workspaces</h1>
     <p class="intro">
       Create a disposable checkout of a project with one branch shared by its wrapper repository and
@@ -11,21 +11,23 @@
   <section class="create" aria-labelledby="create-title">
     <h2 id="create-title">New workspace</h2>
     <form (ngSubmit)="create()">
-      <label>
-        Project
-        <select
-          name="project"
-          [(ngModel)]="selectedRepositoryId"
-          (ngModelChange)="selectionChanged()"
-          required
-        >
-          @for (choice of choices(); track choice.repository.id) {
-            <option [value]="choice.repository.id">
-              {{ choice.project.name }} ({{ choice.repository.name }})
-            </option>
-          }
-        </select>
-      </label>
+      @if (!scoped()) {
+        <label>
+          Project
+          <select
+            name="project"
+            [(ngModel)]="selectedRepositoryId"
+            (ngModelChange)="selectionChanged()"
+            required
+          >
+            @for (choice of choices(); track choice.repository.id) {
+              <option [value]="choice.repository.id">
+                {{ choice.project.name }} ({{ choice.repository.name }})
+              </option>
+            }
+          </select>
+        </label>
+      }
       <label>
         Workspace branch
         <input name="branch" [(ngModel)]="branch" required maxlength="120" autocomplete="off" />
@@ -62,10 +64,21 @@
       <ul>
         @for (workspace of workspaces(); track workspace.id) {
           <li>
-            <a [routerLink]="['/repositories', selectedRepositoryId, 'workspaces', workspace.id]">
+            <a
+              [routerLink]="[
+                ...home(),
+                'repositories',
+                selectedRepositoryId,
+                'workspaces',
+                workspace.id,
+              ]"
+            >
               <strong>{{ workspace.branch || workspace.workspaceId }}</strong>
               @if (workspace.admin) {
-                <span class="admin-badge" title="Admin mode: this container holds the host's docker socket">
+                <span
+                  class="admin-badge"
+                  title="Admin mode: this container holds the host's docker socket"
+                >
                   docker socket
                 </span>
               }

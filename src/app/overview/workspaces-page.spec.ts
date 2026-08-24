@@ -2,6 +2,7 @@ import { Location } from '@angular/common';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideLocationMocks } from '@angular/common/testing';
+import { provideQitsRepositoryList, provideQitsScope } from '@qits/ui-components';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import type { ProjectDto, RepositoryDto, WorkspaceDto } from '../api/dto';
@@ -100,6 +101,10 @@ describe('WorkspacesPage', () => {
         provideLocationMocks(),
         provideHttpClient(),
         provideHttpClientTesting(),
+        // The chrome's two reads, as literals: with no project scoped they answer nothing, which
+        // is the unscoped page these specs are about.
+        provideQitsRepositoryList([]),
+        provideQitsScope('repository'),
       ],
     });
     http = TestBed.inject(HttpTestingController);
