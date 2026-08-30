@@ -4,7 +4,7 @@ import { provideLocationMocks } from '@angular/common/testing';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { provideQitsRepositoryList, provideQitsScope } from '@qits/ui-components';
+import { QITS_CATEGORIES, provideQitsRepositoryList, provideQitsScope } from '@qits/ui-components';
 import { EVENT_SOURCE_FACTORY, type EventSourceLike } from './api/event-source';
 import { routes } from './app.routes';
 import { WorkspaceDetailPage } from './detail/workspace-detail-page';
@@ -15,13 +15,14 @@ import { WorkspacesPage } from './overview/workspaces-page';
  * One page, three spellings of every address.
  *
  * This application is served at the root of its own host, so `/repositories/r1/workspaces/12`,
- * `/qits/repositories/r1/workspaces/12` and `/qits/services/qits-ci/repositories/r1/workspaces/12`
- * are the same workspace seen unscoped, under a project and under the repository the reader came in
- * through. All three have to reach the same component.
+ * `/qits/repositories/r1/workspaces/12` and `/qits/qits-ci/qits-ci-service/repositories/r1/…` are
+ * the same workspace seen unscoped, under a project and under the repository the reader came in
+ * through. All three have to reach the same component. The middle segment is the repository's
+ * group, spelled as its component or as its archetype category; both resolve.
  *
- * The trap the guard exists for is the other direction: `repositories` is not a project slug, and
- * without `canMatch` on the category the repository branch would claim this application's own three
- * leading segments as a project, a category and a repository.
+ * The trap the guard exists for is the other direction: `repositories` is neither a project slug
+ * nor a group, and without `canMatch` the repository branch would claim this application's own
+ * three leading segments as a project, a group and a repository.
  */
 describe('routes', () => {
   let harness: RouterTestingHarness;
@@ -100,13 +101,26 @@ describe('routes', () => {
     expect(await activated('/repositories/r1/workspaces/12')).toBe(WorkspaceDetailPage);
   });
 
-  it('refuses a middle segment that is not a category', async () => {
-    expect(await activated('/qits/nonsense/qits-ci')).toBe(NotFound);
+  it('serves the overview under a repository addressed by its component', async () => {
+    expect(await activated('/qits/qits-ci/qits-ci-service')).toBe(WorkspacesPage);
   });
 
-  it('serves every category', async () => {
-    for (const category of ['services', 'daemons', 'libs', 'frontends', 'cli', 'images']) {
-      expect(await activated(`/qits/${category}/qits-ci`)).toBe(WorkspacesPage);
+  it('serves the same workspace under a repository addressed by its component', async () => {
+    expect(await activated('/qits/qits-ci/qits-ci-service/repositories/r1/workspaces/12')).toBe(
+      WorkspaceDetailPage,
+    );
+  });
+
+  it('serves every group, whichever way the platform names it', async () => {
+    // The six categories are closed; a component is not, so the guard lets any segment through
+    // that is not one of this application's own — the chrome settles what it means.
+    for (const group of [...QITS_CATEGORIES, 'qits-ci', 'qits-workspaces']) {
+      expect(await activated(`/qits/${group}/qits-ci-service`)).toBe(WorkspacesPage);
     }
+  });
+
+  it('never reads a category as a project', async () => {
+    // `/services/…` is a category in segment one, which no project slug can be.
+    expect(await activated('/services/qits-ci/repositories')).toBe(NotFound);
   });
 });

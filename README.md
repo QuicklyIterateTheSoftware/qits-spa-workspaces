@@ -9,7 +9,9 @@ Quinoa; it ships no image.
 - **`/repositories/{repositoryId}/workspaces/{id}?tab=…`** — one workspace's detail view:
   the room you sit in while a coding agent changes it.
 
-Both answer at a **scoped** address too — `/<projectSlug>/<category>/<repoName>/…` — which is the
+Both answer at a **scoped** address too — `/<projectSlug>/<group>/<repoName>/…`, the middle
+segment being the repository's component where the platform gives it one and its archetype category
+where it does not — which is the
 platform-wide URL grammar every SPA here shares. The pages read that scope from
 `@qits/ui-components` rather than from route parameters, so one component serves both spellings.
 

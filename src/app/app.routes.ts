@@ -31,16 +31,37 @@ const own: Routes = [
   },
 ];
 
+/** The first segments this application's own routes spell, which no project and no group can be. */
+const OWN_SEGMENTS: ReadonlySet<string> = new Set(
+  own.map((route) => (route.path ?? '').split('/')[0]).filter((segment) => segment.length > 0),
+);
+
 /**
- * Is `<project>/<category>/<repository>` a repository address, or this application's own three
+ * Is `<project>/<group>/<repository>` a repository address, or this application's own three
  * segments?
  *
- * The category is what decides, because it is the one segment of the three drawn from a closed set.
- * `segments` are the ones left at this level, so the category is `segments[1]` — the parent route is
+ * The middle segment is the repository's **group** — its component where the platform gives it one,
+ * its archetype category where it does not. Components are an **open** set that only the platform
+ * knows, so the guard cannot test the segment against a list: a reader landing on a deep link has
+ * no repository list yet, and a guard that waited for one would 404 the address it was asked about.
+ * The closed vocabulary left is this application's own, so that is what decides —
+ * `/qits/repositories/r1/workspaces/12` is this app's page under a project, and three segments that
+ * spell none of ours are a repository address.
+ *
+ * A first segment of ours is never a project either, and neither is a category: that is the same
+ * rule `parseScope` applies, so `/services` stays this app's own page. The chrome settles an
+ * unknown group as the project alone once the repository list answers, rather than as a 404.
+ *
+ * `segments` are the ones left at this level, so the group is `segments[1]` — the parent route is
  * the layout's `''` and consumes nothing.
  */
-export const categoryIsKnown: CanMatchFn = (_route, segments) =>
-  QITS_CATEGORIES.includes(segments[1]?.path as QitsCategory);
+export const isRepositoryAddress: CanMatchFn = (_route, segments) => {
+  const project = segments[0]?.path;
+  const group = segments[1]?.path;
+  if (!project || !group) return false;
+  if (OWN_SEGMENTS.has(project) || QITS_CATEGORIES.includes(project as QitsCategory)) return false;
+  return !OWN_SEGMENTS.has(group);
+};
 
 /**
  * Every route inside the platform chrome, three times: bare, under a project, under a repository.
@@ -49,18 +70,18 @@ export const categoryIsKnown: CanMatchFn = (_route, segments) =>
  * is entered once and then kept: every page this app grows lands in `children`, beneath the
  * layout's own outlet, and moving between them never rebuilds the sidebar.
  *
- * **The same components serve all three forms.** `/qits/services/qits-ci/` is the workspaces of one
- * repository, `/qits/` is the picker over that project's wrappers and `/` is the picker over every
- * project; the pages read that from `QITS_SCOPE` rather than from route parameters, which is why
- * the scoped branches declare no readers of `:project`, `:category` or `:repository`.
+ * **The same components serve all three forms.** `/qits/qits-ci/qits-ci-service/` is the workspaces
+ * of one repository, `/qits/` is the picker over that project's wrappers and `/` is the picker over
+ * every project; the pages read that from `QITS_SCOPE` rather than from route parameters, which is
+ * why the scoped branches declare no readers of `:project`, `:group` or `:repository`.
  *
  * **The project form is what the chrome's project picker navigates to.** `UrlScope.select(slug)`
  * goes to `/<slug>/`, so without this route picking a project here would land on the 404 page.
  *
  * **Order is the whole grammar**, and it works because the three vocabularies cannot collide: a
- * category is never a slug, and a slug is never one of this app's own first segments. Own routes
+ * group is never a slug, and neither is ever one of this app's own first segments. Own routes
  * first, so `repositories/…` stays this application's literal rather than a project called
- * `repositories`; the repository form next, guarded on the category; the project form last, which
+ * `repositories`; the repository form next, guarded on the group; the project form last, which
  * takes what is left.
  *
  * The `**` route sits *inside* the layout: this application is served at the root of its own host,
@@ -72,7 +93,7 @@ export const routes: Routes = [
     component: QitsMainLayout,
     children: [
       ...own,
-      { path: ':project/:category/:repository', canMatch: [categoryIsKnown], children: own },
+      { path: ':project/:group/:repository', canMatch: [isRepositoryAddress], children: own },
       { path: ':project', children: own },
       { path: '**', component: NotFound },
     ],

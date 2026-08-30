@@ -28,9 +28,9 @@ import { routes } from './app.routes';
  *   was, from one `GET /projects/api/projects`. Every resource on this platform belongs to a
  *   project, so which one is open is the outermost fact about a page rather than a filter inside
  *   one of them — above the links, because it scopes them. It also loads the scoped project's
- *   repositories, which is what the sidebar draws its per-category groups from.
+ *   repositories, which is what the sidebar draws its groups from.
  * - `provideQitsScope('repository')` says how deep this application's own addresses go: a workspace
- *   belongs to one repository, so it serves `/<slug>/<category>/<repo>/…` beside its own bare paths
+ *   belongs to one repository, so it serves `/<slug>/<group>/<repo>/…` beside its own bare paths
  *   and the picker navigates here rather than leaving for qits-projects.
  */
 export const appConfig: ApplicationConfig = {
