@@ -1,4 +1,4 @@
-# QitsSpaWorkspaces
+# qits-workspaces-frontend
 
 The workspaces UI: what is in flight in a repository, and the two doors that send a workspace home.
 Served by qits-workspaces itself at the root of its own host (`workspaces.<env>.<domain>/`) through
@@ -151,7 +151,7 @@ integrate has no version, so its record and its surface draw none rather than an
 
 `src/app/api/` holds hand-written interfaces mirroring the two services' wire shapes, one injectable
 service each, over `HttpClient` on the fetch backend. Nothing is generated, and nothing is shared
-with qits-spa-ci or qits-spa-cd: the duplication is the deliberate alternative to putting transport
+with qits-ci-frontend or qits-spa-cd: the duplication is the deliberate alternative to putting transport
 into a components library that seven SPAs consume without making a request.
 
 This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.19.
