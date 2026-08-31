@@ -136,6 +136,36 @@ export interface ContainerProcessResponse {
   readonly technicalProcessId: string | null;
 }
 
+/**
+ * The in-container editor's own state, as the daemon reports it, and it is **not** the container's.
+ *
+ * A container can be `RUNNING` with no editor in it yet — `STARTING` is the whole reason this page
+ * has a waiting state — and `ENDED` is an editor that ran and stopped inside a container that is
+ * still up. `null` is a container the daemon has not answered for at all, which reads as "not yet"
+ * rather than as an ending.
+ */
+export type EditorState = 'STARTING' | 'RUNNING' | 'ENDED';
+
+/**
+ * What `POST /workspaces/api/editor/ensure` answers: the workspace carrying this project's editor,
+ * what its container is doing, and the one field a caller acts on.
+ *
+ * **`editorReady` is the readiness, and the two states are not it.** A caller that waited for
+ * `editorState === 'RUNNING'` would be deciding for itself when the editor answers requests; the
+ * service owns that judgement — it holds the container status *and* the daemon's report — and says
+ * so in one boolean. The states are what the page *shows* while the boolean is false, and `ENDED`
+ * is the one that stops the waiting rather than continuing it.
+ *
+ * The call is idempotent: a second one against a live editor answers `200` with the same body a
+ * `201` carried, which is what makes polling it the whole readiness protocol.
+ */
+export interface EditorSessionDto {
+  readonly workspaceId: string;
+  readonly containerStatus: string;
+  readonly editorState: EditorState | null;
+  readonly editorReady: boolean;
+}
+
 /** What `discard` answers. One boolean, and the workspace is resolved by the time it arrives. */
 export interface DiscardResponse {
   readonly success: boolean;
