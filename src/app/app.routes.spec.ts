@@ -8,6 +8,7 @@ import { QITS_CATEGORIES, provideQitsRepositoryList, provideQitsScope } from '@q
 import { EVENT_SOURCE_FACTORY, type EventSourceLike } from './api/event-source';
 import { routes } from './app.routes';
 import { WorkspaceDetailPage } from './detail/workspace-detail-page';
+import { EditorPage } from './editor/editor-page';
 import { NotFound } from './not-found/not-found';
 import { WorkspacesPage } from './overview/workspaces-page';
 
@@ -69,6 +70,19 @@ describe('routes', () => {
 
   it('serves the overview under a repository', async () => {
     expect(await activated('/qits/services/qits-ci')).toBe(WorkspacesPage);
+  });
+
+  it('serves the editor in all three spellings', async () => {
+    // One page per project, and the project is the scope rather than a parameter — so the same
+    // component answers bare, under a project and under a repository.
+    expect(await activated('/editor')).toBe(EditorPage);
+    expect(await activated('/qits/editor')).toBe(EditorPage);
+    expect(await activated('/qits/qits-ci/qits-ci-service/editor')).toBe(EditorPage);
+  });
+
+  it('never reads its own `editor` segment as a project', async () => {
+    // `/editor/qits-ci/qits-ci-service` would otherwise be a project called `editor`.
+    expect(await activated('/editor/qits-ci/qits-ci-service')).toBe(NotFound);
   });
 
   it('serves a workspace bare', async () => {

@@ -10,6 +10,7 @@ import type {
   CreateWorkspaceRequest,
   CreateWorkspaceResponse,
   DiscardResponse,
+  EditorSessionDto,
   IntegrateResponse,
   MergeRequest,
   ReleaseResponse,
@@ -34,7 +35,8 @@ export const SERVICE_EVENT_PAGE_SIZE = 20;
 
 /**
  * The calls this app makes against qits-workspaces: read a repository's workspaces, read one
- * workspace's running process and its history record, drive a container, and send work home.
+ * workspace's running process and its history record, drive a container, open a project's editor,
+ * and send work home.
  *
  * Release and integrate are **two processes, not one call with a flag**, and this client says so
  * with two methods against two routes. Release is the door into the default branch and stamps a
@@ -182,8 +184,34 @@ export class WorkspacesApi {
     );
   }
 
-  /** Stop the container. The branch is untouched: the container is a cache of it. */
-  async stopContainer(workspaceId: number): Promise<WorkspaceDto> {
+  /**
+   * Find or start this project's editor, and say whether it answers yet.
+   *
+   * **One door for both**, because the request is the same sentence either way: "there should be an
+   * editor here". A fresh one answers `201` and an existing one `200`, with the same body — so the
+   * caller polls this and nothing else, and a reader who reloads mid-start rejoins the editor that
+   * is already coming up instead of asking for a second one.
+   *
+   * **The scope is the wrapper repository, sent the way the listing sends its own**: as a query
+   * parameter on a collection-level route, because a workspace is not a sub-resource of a
+   * repository here — qits-workspaces holds the id as an opaque string. Which repository that is,
+   * is the overview's rule reused: a project's editor rides the workspace of the row an aggregate
+   * workspace branches. The body is empty; everything this door needs is the scope.
+   */
+  async ensureEditor(repositoryId: string): Promise<EditorSessionDto> {
+    const params = new HttpParams().set('repositoryId', repositoryId);
+    return firstValueFrom(
+      this.http.post<EditorSessionDto>(`${this.base}/workspaces/api/editor/ensure`, {}, { params }),
+    );
+  }
+
+  /**
+   * Stop the container. The branch is untouched: the container is a cache of it.
+   *
+   * The id is the row id every one of these routes addresses. It is accepted as a string too
+   * because the editor door answers one — same address, spelled the way JSON spells an identifier.
+   */
+  async stopContainer(workspaceId: number | string): Promise<WorkspaceDto> {
     return firstValueFrom(
       this.http.post<WorkspaceDto>(
         `${this.base}/workspaces/api/workspaces/${encodeURIComponent(workspaceId)}/stop-container`,
@@ -201,7 +229,7 @@ export class WorkspacesApi {
    * whenever `clean` is not exactly `true` — and "unknown", which is what a disconnected daemon
    * reports, counts as not clean.
    */
-  async recreateContainer(workspaceId: number): Promise<ContainerProcessResponse> {
+  async recreateContainer(workspaceId: number | string): Promise<ContainerProcessResponse> {
     return firstValueFrom(
       this.http.post<ContainerProcessResponse>(
         `${this.base}/workspaces/api/workspaces/${encodeURIComponent(workspaceId)}/recreate-container`,

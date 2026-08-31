@@ -1,11 +1,12 @@
 import type { CanMatchFn, Routes } from '@angular/router';
 import { QITS_CATEGORIES, QitsMainLayout, type QitsCategory } from '@qits/ui-components';
 import { WorkspaceDetailPage } from './detail/workspace-detail-page';
+import { EditorPage } from './editor/editor-page';
 import { NotFound } from './not-found/not-found';
 import { WorkspacesPage } from './overview/workspaces-page';
 
 /**
- * The two pages this application owns.
+ * The three pages this application owns.
  *
  * **The root view is intentionally small.** It lists the active workspaces of whatever repository
  * is in scope and offers the create flow. Unscoped it falls back to a picker, one wrapper per
@@ -17,6 +18,13 @@ import { WorkspacesPage } from './overview/workspaces-page';
  * id is the generated one every route addresses, never the branch-derived label — the label is
  * unique only among active workspaces in one repository and is reusable once one resolves.
  *
+ * **`editor` is a project's page and names nothing else**, which is why it is a bare literal beside
+ * the other two rather than a segment under a repository. The editor is one per project, riding the
+ * workspace of that project's wrapper, so the address it needs is the scope every route here
+ * already carries — `/qits/editor` — and a repository in it would be a second answer to a question
+ * the project already settled. It joins the closed vocabulary of first segments below, so no
+ * project may be called `editor`, exactly as none may be called `repositories`.
+ *
  * **Which tab is open rides in `?tab=`, not in a trailing segment.** A trailing segment would make a
  * tab switch free (Angular reuses a component across a parameter change) and would make a *workspace*
  * switch free too — which is the bug, not the feature. Keeping the tab in the query string leaves the
@@ -25,6 +33,7 @@ import { WorkspacesPage } from './overview/workspaces-page';
  */
 const own: Routes = [
   { path: '', component: WorkspacesPage },
+  { path: 'editor', component: EditorPage },
   {
     path: 'repositories/:repositoryId/workspaces/:workspaceId',
     component: WorkspaceDetailPage,
