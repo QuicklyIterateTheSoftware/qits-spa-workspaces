@@ -9,6 +9,8 @@ import {
   provideQitsRepositoryList,
   type QitsScope,
   type QitsScopeSource,
+  QITS_NAVIGATION,
+  type QitsNavigationSource,
 } from '@qits/ui-components';
 import type { EditorSessionDto } from '../api/dto';
 import { routes } from '../app.routes';
@@ -52,10 +54,21 @@ describe('EditorPage', () => {
     return { provide: QITS_SCOPE, useValue: source };
   };
 
-  /** The browser, as a fake: a host to derive from and a hand-off that records instead of leaving. */
+  /** The browser, as a fake: a hand-off that records instead of leaving. */
   const browser: BrowserLocation = {
     hostname: () => 'workspaces.wohlben.eu',
     assign: (url: string) => void assigned.push(url),
+  };
+
+  /** The navigation document, as the shell would hold it: the environment origin and nothing else. */
+  const navigationSource: QitsNavigationSource = {
+    tree: signal({
+      entries: [],
+      environmentOrigin: 'https://wohlben.eu',
+      apiDocs: {},
+      legacy: undefined,
+    }),
+    failed: signal(false),
   };
 
   function configure(scope: Provider): void {
@@ -71,6 +84,9 @@ describe('EditorPage', () => {
           'qits-qits',
         ),
         { provide: BROWSER_LOCATION, useValue: browser },
+        // The platform's statement of where the environment is served — what the hand-off's
+        // address is composed from, exactly as the sidebar composes every cross-app link.
+        { provide: QITS_NAVIGATION, useValue: navigationSource },
         scope,
       ],
     });

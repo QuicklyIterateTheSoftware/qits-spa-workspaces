@@ -9,7 +9,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { QITS_REPOSITORIES, QITS_SCOPE, QitsButton } from '@qits/ui-components';
+import { QITS_NAVIGATION, QITS_REPOSITORIES, QITS_SCOPE, QitsButton } from '@qits/ui-components';
 import type { EditorSessionDto } from '../api/dto';
 import { WorkspacesApi } from '../api/workspaces-api';
 import { Async } from '../ui/async';
@@ -78,9 +78,14 @@ export class EditorPage {
   private readonly qitsScope = inject(QITS_SCOPE);
   private readonly qitsRepositories = inject(QITS_REPOSITORIES);
   private readonly browser = inject(BROWSER_LOCATION);
+  /**
+   * The platform's own statement of where the environment is served — the same navigation document
+   * every sidebar link is composed from. Optional because a bare spec of this component need not
+   * stand the whole chrome up; a page without it simply keeps waiting for an address.
+   */
+  private readonly navigation = inject(QITS_NAVIGATION, { optional: true });
 
   /** The host this page was served on, which is the only input the hand-off's address has. */
-  protected readonly hostname = this.browser.hostname();
 
   protected readonly session = signal<Loadable<EditorSessionDto>>(IDLE);
   protected readonly pending = signal<Pending>(null);
@@ -113,10 +118,11 @@ export class EditorPage {
     this.qitsScope.scope().project ? this.qitsRepositories.wrapperRepositoryId() : undefined,
   );
 
-  /** Where the reader is being sent, or null when this host states no domain to send them to. */
+  /** Where the reader is being sent, or null while the platform has not stated its origin yet. */
   protected readonly editorUrl = computed(() => {
     const slug = this.projectSlug();
-    return slug ? editorOrigin(this.browser.hostname(), slug) : null;
+    const origin = this.navigation?.tree()?.environmentOrigin;
+    return slug ? editorOrigin(origin, slug) : null;
   });
 
   /** Whether the address states a project at all. Unscoped, this page has no subject. */
@@ -239,7 +245,13 @@ export class EditorPage {
       const answer = await this.api.ensureEditor(repositoryId);
       this.session.set(ready(answer));
       if (answer.editorReady) {
-        this.handOff();
+        if (this.editorUrl()) {
+          this.handOff();
+          return;
+        }
+        // Ready, but the navigation document has not stated the environment origin yet — the
+        // address is composed from it, so ask again shortly rather than stranding the reader.
+        this.schedule(repositoryId);
         return;
       }
       // An ended editor is not a slow one. Waiting on it would wait forever, so the poll stops and

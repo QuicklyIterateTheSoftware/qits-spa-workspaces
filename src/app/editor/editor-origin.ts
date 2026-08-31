@@ -7,13 +7,9 @@ import { InjectionToken } from '@angular/core';
  * hand-off to the editor is a **full** navigation — the editor lives on another origin and is not
  * a route — so it goes through `location.assign` and never through the router. A spec that let
  * that run would navigate the test runner out of the page it is asserting on.
- *
- * Reading the hostname sits on the same token because it is the same object in production and the
- * same fake in a spec: the origin this page sends a reader to is *derived from the one it is
- * served on* (see {@link editorOrigin}), so the two halves are one seam or neither is.
  */
 export interface BrowserLocation {
-  /** The host of the page as it was served, without the port — `workspaces.qits.dev.example.eu`. */
+  /** The host of the page as it was served, without the port. */
   hostname(): string;
 
   /** Leave for another origin. Nothing after this call runs in a real browser. */
@@ -30,33 +26,40 @@ export const BROWSER_LOCATION = new InjectionToken<BrowserLocation>('qits.browse
 });
 
 /**
- * Where a project's editor answers, derived from the address this page was served on.
+ * Where a project's editor answers: `editor.<slug>.` in front of the ENVIRONMENT'S OWN ORIGIN, as
+ * the platform states it.
  *
- * **From the host and never from configuration.** This application's public host is
- * `<app>.<domain>` — `workspaces.wohlben.eu` — because the edge reads only the FIRST label as the
- * application and the editor is a default-environment feature. So the page's own hostname states
- * the domain after exactly ONE label, and `editor.<slug>` is put in front of what remains. A
- * configured base would be a second answer to that question, one a `dev` deployment could hold
- * pointing at production.
+ * **The environment origin comes from the edge's navigation document** (`/main-navigation`,
+ * `origin` — `EnvironmentAuthority` on the edge side, rooted in the platform's configured domain),
+ * which is the same statement every cross-application link in the sidebar is already composed
+ * from. Scheme and port travel with it, so a plain-http local platform hands off to plain http.
  *
- * This function shipped dropping TWO labels — written against a
- * `<app>.<project>.<environment>.<domain>` host shape no deployment serves — and the first real
- * click paid for it: served on `workspaces.wohlben.eu` it dropped `workspaces` AND `wohlben` and
- * sent the reader to `https://editor.qits.eu/`, somebody else's domain. The host model above is
- * the deployed one, verified against the edge's `$app.$domain` reading and the live navigation
- * document.
+ * This function has been wrong twice, both times by inventing the domain instead of asking for
+ * it: it shipped deriving from `location.hostname` by dropping two labels (a
+ * `<app>.<project>.<env>.<domain>` host shape no deployment serves — the first real click landed
+ * on `https://editor.qits.eu/`, somebody else's domain), and the corrected label count was still
+ * string surgery on this page's own address. The domain is configured — the bootstrap states it,
+ * the certificate is ordered against it, the edge publishes it — and the navigation document is
+ * where the platform says it to a browser. Ask; never derive.
  *
- * The slug is passed rather than reused from the hostname because an unscoped address serves this
- * page too, and the project it names is the scope's.
- *
- * `null` when nothing is left after the app label — `localhost` under `ng serve` is the case that
- * produces it. A hand-off cannot be built there, and the page says so rather than sending anyone
- * to `https://editor.qits./`.
+ * `null` while the platform has not answered (the document not loaded yet, or `ng serve` with no
+ * edge in front) and for an empty slug. The page keeps asking rather than guessing.
  */
-export function editorOrigin(hostname: string, projectSlug: string): string | null {
-  const labels = hostname.split('.');
-  if (labels.length < 2 || projectSlug === '') {
+export function editorOrigin(
+  environmentOrigin: string | undefined,
+  projectSlug: string,
+): string | null {
+  if (!environmentOrigin || projectSlug === '') {
     return null;
   }
-  return `https://editor.${projectSlug}.${labels.slice(1).join('.')}/`;
+  let origin: URL;
+  try {
+    origin = new URL(environmentOrigin);
+  } catch {
+    return null;
+  }
+  if (!origin.host) {
+    return null;
+  }
+  return `${origin.protocol}//editor.${projectSlug}.${origin.host}/`;
 }
