@@ -32,22 +32,31 @@ export const BROWSER_LOCATION = new InjectionToken<BrowserLocation>('qits.browse
 /**
  * Where a project's editor answers, derived from the address this page was served on.
  *
- * **From the host and never from configuration.** Every platform host is
- * `<app>.<project>.<environment>.<domain>`, so this page's own hostname already states the
- * environment and the domain the reader is in — and a configured base would be a second answer to
- * that question, one that a `dev` deployment could hold pointing at production. Dropping the first
- * two labels drops *this* application and *this* project and leaves the environment's domain, which
- * `editor.<slug>` is then put in front of. The slug is passed rather than reused from the hostname
- * because an unscoped address serves this page too, and the project it names is the scope's.
+ * **From the host and never from configuration.** This application's public host is
+ * `<app>.<domain>` — `workspaces.wohlben.eu` — because the edge reads only the FIRST label as the
+ * application and the editor is a default-environment feature. So the page's own hostname states
+ * the domain after exactly ONE label, and `editor.<slug>` is put in front of what remains. A
+ * configured base would be a second answer to that question, one a `dev` deployment could hold
+ * pointing at production.
  *
- * `null` when there is no domain left after the first two labels — `localhost` under `ng serve` is
- * the case that produces it. A hand-off cannot be built there, and the page says so rather than
- * sending anyone to `https://editor.qits./`.
+ * This function shipped dropping TWO labels — written against a
+ * `<app>.<project>.<environment>.<domain>` host shape no deployment serves — and the first real
+ * click paid for it: served on `workspaces.wohlben.eu` it dropped `workspaces` AND `wohlben` and
+ * sent the reader to `https://editor.qits.eu/`, somebody else's domain. The host model above is
+ * the deployed one, verified against the edge's `$app.$domain` reading and the live navigation
+ * document.
+ *
+ * The slug is passed rather than reused from the hostname because an unscoped address serves this
+ * page too, and the project it names is the scope's.
+ *
+ * `null` when nothing is left after the app label — `localhost` under `ng serve` is the case that
+ * produces it. A hand-off cannot be built there, and the page says so rather than sending anyone
+ * to `https://editor.qits./`.
  */
 export function editorOrigin(hostname: string, projectSlug: string): string | null {
   const labels = hostname.split('.');
-  if (labels.length < 3 || projectSlug === '') {
+  if (labels.length < 2 || projectSlug === '') {
     return null;
   }
-  return `https://editor.${projectSlug}.${labels.slice(2).join('.')}/`;
+  return `https://editor.${projectSlug}.${labels.slice(1).join('.')}/`;
 }

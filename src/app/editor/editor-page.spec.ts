@@ -54,7 +54,7 @@ describe('EditorPage', () => {
 
   /** The browser, as a fake: a host to derive from and a hand-off that records instead of leaving. */
   const browser: BrowserLocation = {
-    hostname: () => 'workspaces.qits.dev.wohlben.eu',
+    hostname: () => 'workspaces.wohlben.eu',
     assign: (url: string) => void assigned.push(url),
   };
 
@@ -145,7 +145,7 @@ describe('EditorPage', () => {
 
     expect(assigned).toEqual([]);
     expect(text()).toContain('Starting the container');
-    expect(text()).toContain('https://editor.qits.dev.wohlben.eu/');
+    expect(text()).toContain('https://editor.qits.wohlben.eu/');
 
     vi.advanceTimersByTime(2_000);
     http.expectOne(ENSURE_URL).flush(session());
@@ -163,7 +163,7 @@ describe('EditorPage', () => {
     http.expectOne(ENSURE_URL).flush(session({ editorState: 'RUNNING', editorReady: true }));
     await settle();
 
-    expect(assigned).toEqual(['https://editor.qits.dev.wohlben.eu/']);
+    expect(assigned).toEqual(['https://editor.qits.wohlben.eu/']);
 
     // The poll is over: a ready editor is asked for nothing more.
     vi.advanceTimersByTime(10_000);
