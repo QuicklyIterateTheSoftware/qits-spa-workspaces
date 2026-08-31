@@ -1,43 +1,41 @@
 import { editorOrigin } from './editor-origin';
 
 /**
- * The hand-off's address, derived from the one the reader is already on.
+ * The hand-off's address: `editor.<slug>.` in front of the environment origin THE PLATFORM STATES
+ * — the navigation document's `origin`, the same statement every sidebar link composes against.
  *
- * The rule is "drop this application's label, keep the rest": the public host is `<app>.<domain>`
- * (`workspaces.wohlben.eu` — the edge reads only the first label as the application), so what is
- * left after one label is the domain, which is the only part of the address this page must not
- * invent. These specs replaced a set that pinned a `<app>.<project>.<env>.<domain>` shape no
- * deployment serves — the drop-two derivation they blessed sent the first real reader to
- * `https://editor.qits.eu/`, somebody else's domain.
+ * These specs replaced two generations that blessed deriving the domain from this page's own
+ * hostname (first dropping two labels — the first real click landed on `https://editor.qits.eu/`,
+ * somebody else's domain — then one). The address is asked for now, never derived, so what is
+ * pinned here is composition alone.
  */
 describe('editorOrigin', () => {
-  it('replaces the application label and keeps the domain', () => {
-    expect(editorOrigin('workspaces.wohlben.eu', 'qits')).toBe('https://editor.qits.wohlben.eu/');
+  it('puts editor.<slug>. in front of the stated origin', () => {
+    expect(editorOrigin('https://wohlben.eu', 'qits')).toBe('https://editor.qits.wohlben.eu/');
   });
 
-  it('sends a reader to their own project, not to the one the host names', () => {
-    // The slug comes from the scope: `/other/editor` served on the shared host is other's editor.
-    expect(editorOrigin('workspaces.wohlben.eu', 'other')).toBe(
-      'https://editor.other.wohlben.eu/',
+  it('keeps the stated scheme and port — a plain-http platform hands off to plain http', () => {
+    expect(editorOrigin('http://dev.localhost:8080', 'qits')).toBe(
+      'http://editor.qits.dev.localhost:8080/',
     );
   });
 
-  it('keeps whatever domain remains, an environment label included', () => {
-    // An environment-labelled host is not a certified spelling for the editor (the certificate
-    // carries `editor.<slug>.<domain>` alone), but the derivation stays honest about what it was
-    // served on rather than guessing which label is an environment.
-    expect(editorOrigin('workspaces.dev.wohlben.eu', 'qits')).toBe(
-      'https://editor.qits.dev.wohlben.eu/',
-    );
+  it('sends a reader to their own project, not to anything the origin names', () => {
+    expect(editorOrigin('https://wohlben.eu', 'other')).toBe('https://editor.other.wohlben.eu/');
   });
 
-  it('answers null where there is no domain left to keep', () => {
-    // `ng serve` with no gateway in front. There is nothing to derive, and inventing one would
-    // send a reader to `https://editor.qits./`.
-    expect(editorOrigin('localhost', 'qits')).toBeNull();
+  it('answers null while the platform has not stated an origin', () => {
+    // The document not loaded yet, or `ng serve` with no edge in front. The page keeps waiting
+    // rather than inventing an address.
+    expect(editorOrigin(undefined, 'qits')).toBeNull();
+    expect(editorOrigin('', 'qits')).toBeNull();
+  });
+
+  it('answers null for a statement that is not an origin', () => {
+    expect(editorOrigin('not an origin', 'qits')).toBeNull();
   });
 
   it('answers null for an empty slug, which no address states', () => {
-    expect(editorOrigin('workspaces.wohlben.eu', '')).toBeNull();
+    expect(editorOrigin('https://wohlben.eu', '')).toBeNull();
   });
 });
