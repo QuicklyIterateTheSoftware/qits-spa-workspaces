@@ -8,8 +8,9 @@ Quinoa; it ships no image.
   for: **Release** or **Integrate**.
 - **`/repositories/{repositoryId}/workspaces/{id}?tab=…`** — one workspace's detail view:
   the room you sit in while a coding agent changes it.
+- **`/editor`** — the door to this project's browser VS Code, and the wait while it comes up.
 
-Both answer at a **scoped** address too — `/<projectSlug>/<group>/<repoName>/…`, the middle
+All three answer at a **scoped** address too — `/<projectSlug>/<group>/<repoName>/…`, the middle
 segment being the repository's component where the platform gives it one and its archetype category
 where it does not — which is the
 platform-wide URL grammar every SPA here shares. The pages read that scope from
@@ -88,6 +89,40 @@ panel's typed client is written against the daemon's own contract by the workstr
 **A resolved workspace does not get a detail view.** It is not in the active list, its container is
 gone, and the history record has no branch state, no runtime and no commands — six tabs that all 502
 would be worse than an honest record, which is what the page shows instead.
+
+## The editor
+
+`/editor` is a **waiting room, and then it is gone.** The editor is `openvscode-server` inside the
+project's workspace container, answering on its own origin — `https://editor.<slug>.<domain>/` — so
+the last thing the page does is a full `location.assign` out of the application. Not an iframe and
+not a route: the editor owns a whole origin, with its own service worker, history and websockets,
+and a frame around it would buy nothing and cost all three.
+
+**One idempotent door is the entire protocol.** `POST /workspaces/api/editor/ensure?repositoryId=…`
+is asked on arrival and then every two seconds; a fresh editor answers `201`, an existing one `200`,
+and the same body — `{workspaceId, containerStatus, editorState, editorReady}` — says whether it
+answers requests yet. There is no separate status read, and the page deliberately does not judge
+readiness from `editorState`: the service holds both the container status and the daemon's report,
+and `editorReady` is where that judgement lives. The states are what the wait _says_ while it is
+false, and `ENDED` is the one that stops the waiting rather than continuing it.
+
+**The origin is derived from this page's own host, never from configuration.** Every platform host
+is `<app>.<project>.<environment>.<domain>`, so dropping the first two labels leaves the environment
+domain the reader is already in, and `editor.<slug>` goes in front of it. A configured base would be
+a second statement of the same fact — one a `dev` deployment could hold pointing at production.
+
+**The scope is the project, and the row is always its wrapper.** A repository segment in the address
+says which page the reader came in through, not which editor this is: there is one editor per
+project and it rides the aggregate workspace, which branches the wrapper and every submodule under
+it. Unscoped there is no project and therefore nothing to ask for, and the page says which address
+would have one instead of guessing.
+
+**Nothing is torn down on the way out.** The container is shared — somebody else may be in it, a
+coding agent may be running in it, and the reader leaving this page is usually the reader _arriving_
+at the editor — so leaving cancels the poll and ends there. Stop and Recreate are the two verbs that
+do end something, and they are presses. Recreate is refused with a `400` unless the working tree is
+provably clean; this page cannot know that in advance, because the door answers no `clean` field, so
+the refusal is rendered as the sentence it is rather than as a status code.
 
 ## Releasing and integrating
 
