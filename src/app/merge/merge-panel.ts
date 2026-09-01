@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   inject,
   input,
@@ -15,10 +16,13 @@ import { shortSha } from '../ui/format';
 import {
   VERSION_PLACEHOLDER,
   classifyMergeFailure,
+  gateFailure,
+  gateOutcome,
   integrateResult,
   integrateSubject,
   releaseResult,
   releaseSubject,
+  requestedView,
   type MergeAction,
   type MergeFailure,
   type MergeResult,
@@ -62,6 +66,14 @@ export class MergePanel {
 
   /** The workspace this panel merges. */
   readonly workspace = input.required<WorkspaceDto>();
+
+  /**
+   * The repository the workspace belongs to — what a release request is filed under, and therefore
+   * the first half of the poll's address. An input rather than a field on {@link workspace}
+   * because `WorkspaceDto` does not carry it; the page that mounted this panel came in through the
+   * repository and has it to give.
+   */
+  readonly repositoryId = input.required<string>();
 
   /**
    * The repository's default branch, from qits-projects' `Repository.mainBranch`.
@@ -177,6 +189,23 @@ export class MergePanel {
     return state.kind === 'done' ? state.result : null;
   });
 
+  /** The in-flight release request, while the gates hold it. Null in every other state. */
+  protected readonly request = computed(() => {
+    const state = this.state();
+    return state.kind === 'requested' ? state.request : null;
+  });
+
+  /** The gating sentence for the state on hand — the words are this screen's, not the wire's. */
+  protected readonly requestProgress = computed(() => {
+    const request = this.request();
+    if (request === null) {
+      return '';
+    }
+    return request.state === 'READY'
+      ? 'The gates passed — landing now.'
+      : 'Waiting for the build to go green — the gates release it then.';
+  });
+
   protected open(): void {
     this.state.set({ kind: 'editing' });
   }
@@ -208,25 +237,78 @@ export class MergePanel {
   }
 
   /**
-   * One press, one attempt. Never re-issued automatically: a release is not idempotent — each call
-   * stamps a new version, because two releases are two releases — so an automatic retry could
-   * publish a version nobody asked for.
+   * One press, one attempt, never re-issued automatically. An integrate is a merge and the old
+   * rule holds verbatim. A release is an *ask* now — the door creates (or converges on) the
+   * branch's open request and the gates land it — so this press concludes with the request on
+   * screen and {@link followRequest} polling it to its end. `merged` is emitted only when the
+   * request reads RELEASED, because that is when this row actually stops existing.
    */
   protected async submit(): Promise<void> {
-    if (!this.submittable() || this.state().kind === 'working') {
+    const busy = this.state().kind;
+    if (!this.submittable() || busy === 'working' || busy === 'requested') {
       return;
     }
     const id = this.workspace().id;
     const summary = this.trimmed();
     this.state.set({ kind: 'working' });
     try {
-      const result = this.isRelease()
-        ? releaseResult(await this.api.release(id, summary), this.mainBranch())
-        : integrateResult(await this.api.integrate(id, summary));
+      if (this.isRelease()) {
+        const request = requestedView(await this.api.release(id, summary));
+        this.state.set({ kind: 'requested', request });
+        void this.followRequest(request.id);
+        return;
+      }
+      const result = integrateResult(await this.api.integrate(id, summary));
       this.state.set({ kind: 'done', result });
       this.merged.emit(result);
     } catch (error) {
       this.state.set({ kind: 'failed', failure: classifyMergeFailure(error) });
+    }
+  }
+
+  private readonly destroyRef = inject(DestroyRef);
+  private destroyed = false;
+  private readonly stopOnDestroy = this.destroyRef.onDestroy(() => (this.destroyed = true));
+
+  /** How long between polls of an in-flight request — CI is minutes, so seconds are plenty. A
+   * field rather than a constant so the suite can shorten it to milliseconds. */
+  protected pollEveryMs = 3_000;
+
+  /**
+   * Poll the request until it concludes. A poll that fails is skipped, not fatal — the request is
+   * server-side state and the next tick reads it again; only a terminal state ends the loop. The
+   * loop also ends when this panel stops showing that request (closed, destroyed, or a newer
+   * press), so a stale loop can never overwrite a newer state.
+   */
+  private async followRequest(requestId: string): Promise<void> {
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, this.pollEveryMs));
+      const current = this.state();
+      if (this.destroyed || current.kind !== 'requested' || current.request.id !== requestId) {
+        return;
+      }
+      let request;
+      try {
+        request = await this.api.releaseRequest(this.repositoryId(), requestId);
+      } catch {
+        continue;
+      }
+      const still = this.state();
+      if (this.destroyed || still.kind !== 'requested' || still.request.id !== requestId) {
+        return;
+      }
+      const outcome = gateOutcome(request);
+      if (outcome === 'released') {
+        const result = releaseResult(request, this.mainBranch());
+        this.state.set({ kind: 'done', result });
+        this.merged.emit(result);
+        return;
+      }
+      if (outcome === 'refused') {
+        this.state.set({ kind: 'failed', failure: gateFailure(request) });
+        return;
+      }
+      this.state.set({ kind: 'requested', request });
     }
   }
 

@@ -50,6 +50,7 @@ describe('StatusStrip', () => {
   ) => {
     const fixture = TestBed.createComponent(StatusStrip);
     fixture.componentRef.setInput('workspace', workspace(over));
+    fixture.componentRef.setInput('repositoryId', 'repo-1');
     fixture.componentRef.setInput('mainBranch', options.mainBranch ?? 'main');
     fixture.componentRef.setInput('reachability', options.reachability ?? 'unknown');
     await fixture.whenStable();

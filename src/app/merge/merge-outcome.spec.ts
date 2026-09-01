@@ -181,10 +181,17 @@ describe('the commit subjects', () => {
 });
 
 describe('the two answers, flattened', () => {
-  it('carries a release’s version and the target it was given', () => {
+  it('carries a released request’s version and the target it was given', () => {
     expect(
       releaseResult(
-        { version: '2026.731.193059', commitSha: 'abc1234def', branch: 'explorer-grouping' },
+        {
+          id: 'req-1',
+          state: 'RELEASED',
+          version: '2026.731.193059',
+          commitSha: 'abc1234def',
+          branch: 'explorer-grouping',
+          detail: null,
+        },
         'main',
       ),
     ).toEqual({

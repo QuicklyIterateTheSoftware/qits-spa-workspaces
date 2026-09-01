@@ -78,6 +78,9 @@ export class StatusStrip {
   /** The workspace, as the repository's listing last reported it. */
   readonly workspace = input.required<WorkspaceDto>();
 
+  /** The repository the page came in through — the merge panel's release requests file under it. */
+  readonly repositoryId = input.required<string>();
+
   /** The repository's default branch — what decides the door. */
   readonly mainBranch = input.required<string>();
 

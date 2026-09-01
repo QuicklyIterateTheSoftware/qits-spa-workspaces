@@ -1,5 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import type { IntegrateResponse, ReleaseResponse } from '../api/dto';
+import type {
+  IntegrateResponse,
+  ReleaseRequestView,
+  ReleaseRequestedResponse,
+} from '../api/dto';
 import { describeError, serverMessage, statusOf } from '../ui/loadable';
 
 /**
@@ -36,9 +40,18 @@ export type MergeAction = 'release' | 'integrate';
  *   is the most useful thing on screen, so it is shown verbatim.
  * - `unavailable` — the request never got an answer, or the service failed. Nothing is known about
  *   whether anything happened; refresh before assuming either way.
+ * - `gated` — the release request concluded without releasing: the gates rejected it (a red
+ *   build), the execution refused, or it was withdrawn. Never classified from an HTTP error — it
+ *   is read off the polled request's terminal state, and the detail is the request's own sentence.
  */
 export type MergeFailureKind =
-  'conflict' | 'moved' | 'already-integrated' | 'release-required' | 'refused' | 'unavailable';
+  | 'conflict'
+  | 'moved'
+  | 'already-integrated'
+  | 'release-required'
+  | 'refused'
+  | 'unavailable'
+  | 'gated';
 
 /** A failed release or integrate, classified, with whatever the service said about it. */
 export interface MergeFailure {
@@ -170,14 +183,56 @@ export interface MergeResult {
   readonly targetBranch: string;
 }
 
-/** A release, as this screen holds it. The target is the repository's default branch. */
-export function releaseResult(response: ReleaseResponse, targetBranch: string): MergeResult {
+/**
+ * A released request, as this screen holds it. The target is the repository's default branch, and
+ * the version is the one the gates' execution minted — a `RELEASED` request always carries one,
+ * and the placeholder stands in for the impossible case rather than the word `null` on screen.
+ */
+export function releaseResult(request: ReleaseRequestView, targetBranch: string): MergeResult {
   return {
     action: 'release',
-    version: response.version,
-    commitSha: response.commitSha,
-    branch: response.branch,
+    version: request.version ?? VERSION_PLACEHOLDER,
+    commitSha: request.commitSha,
+    branch: request.branch,
     targetBranch,
+  };
+}
+
+/** The door's answer, as the first thing the polling loop holds — no version yet, by definition. */
+export function requestedView(answer: ReleaseRequestedResponse): ReleaseRequestView {
+  return {
+    id: answer.requestId,
+    state: answer.state,
+    branch: answer.branch,
+    commitSha: answer.commitSha,
+    detail: answer.detail,
+    version: null,
+  };
+}
+
+/**
+ * The three ways a request concludes without releasing, one failure surface for all of them: the
+ * gates said no (`REJECTED`, a red build — push the fix and press again, which re-arms the same
+ * request), the execution refused (`FAILED`, standing with the door's words), or somebody withdrew
+ * it. Everything else, unknown new states included, is still in flight.
+ */
+export function gateOutcome(request: ReleaseRequestView): 'released' | 'refused' | null {
+  if (request.state === 'RELEASED') {
+    return 'released';
+  }
+  if (['REJECTED', 'FAILED', 'WITHDRAWN'].includes(request.state)) {
+    return 'refused';
+  }
+  return null;
+}
+
+/** A concluded-without-releasing request, folded into the failure shape this screen draws. */
+export function gateFailure(request: ReleaseRequestView): MergeFailure {
+  return {
+    kind: 'gated',
+    status: 200,
+    message: request.detail ?? `The request concluded ${request.state}.`,
+    conflicts: [],
   };
 }
 
@@ -203,6 +258,7 @@ export type MergeState =
   | { readonly kind: 'closed' }
   | { readonly kind: 'editing' }
   | { readonly kind: 'working' }
+  | { readonly kind: 'requested'; readonly request: ReleaseRequestView }
   | { readonly kind: 'done'; readonly result: MergeResult }
   | { readonly kind: 'failed'; readonly failure: MergeFailure };
 

@@ -4,7 +4,8 @@
       <qits-button variant="primary" size="sm" (pressed)="open()">{{ actionLabel() }}…</qits-button>
       @if (isRelease()) {
         <span class="target"
-          >merges into <code>{{ mainBranch() }}</code> and stamps a release version</span
+          >asks for a release into <code>{{ mainBranch() }}</code> — the gates land it when the
+          build is green</span
         >
       } @else {
         <span class="target"
@@ -49,13 +50,33 @@
     <p class="working" role="status">
       <span class="spinner" aria-hidden="true"></span>
       @if (isRelease()) {
-        Merging, stamping a version and pushing to <code>{{ target() }}</code
+        Asking for a release into <code>{{ target() }}</code
         >…
       } @else {
         Merging and pushing to <code>{{ target() }}</code
         >…
       }
     </p>
+  }
+
+  @case ('requested') {
+    @if (request(); as pending) {
+      <div class="surface surface-requested" role="status">
+        <h4>
+          <span class="spinner" aria-hidden="true"></span>
+          Release requested
+        </h4>
+        <p>
+          Nothing has merged yet: the request is gated on the build of
+          <code class="sha" [title]="pending.commitSha">{{ shortSha(pending.commitSha) }}</code
+          >. {{ requestProgress() }}
+        </p>
+        <p class="note">
+          This panel follows the request and says how it concluded. Leaving the page loses nothing —
+          the gates land it either way.
+        </p>
+      </div>
+    }
   }
 
   @case ('done') {
@@ -195,6 +216,24 @@
               <qits-button variant="ghost" size="sm" (pressed)="askRefresh()">
                 Refresh the list
               </qits-button>
+            </div>
+          </div>
+        }
+
+        @case ('gated') {
+          <div class="surface surface-gated" role="alert">
+            <h4>The gates did not release this</h4>
+            <p>
+              Nothing merged and <code>{{ target() }}</code> is unchanged. A rejected request comes
+              back to life on the next push: land the fix on this branch and press again — the same
+              request re-arms onto the new head.
+            </p>
+            <p class="said">{{ problem.message }}</p>
+            <div class="surface-actions">
+              <qits-button variant="secondary" size="sm" (pressed)="edit()">
+                Back to the summary
+              </qits-button>
+              <qits-button variant="ghost" size="sm" (pressed)="close()">Close</qits-button>
             </div>
           </div>
         }

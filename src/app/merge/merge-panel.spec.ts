@@ -61,11 +61,34 @@ describe('MergePanel', () => {
     branch: 'task/group-runs',
   });
 
-  const RELEASE = {
-    version: '2026.731.193059',
-    commitSha: '9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456',
+  /** What the flipped door answers: a request, not a landed release. */
+  const REQUESTED = {
+    requestId: 'req-1',
+    state: 'PENDING',
     branch: 'explorer-grouping',
+    commitSha: '9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456',
+    detail: null,
   };
+
+  /** The same request, polled to its released end. */
+  const RELEASED = {
+    request: {
+      id: 'req-1',
+      state: 'RELEASED',
+      branch: 'explorer-grouping',
+      commitSha: '9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456',
+      detail: null,
+      version: '2026.731.193059',
+    },
+  };
+
+  const POLL_URL = '/projects/api/repositories/repo-1/release-requests/req-1';
+
+  /** Shorten the poll to milliseconds, then wait out one tick so the request goes on the wire. */
+  async function nextPoll(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await settle();
+  }
 
   const INTEGRATE = {
     commitSha: '4b5c6d7e8f90123456789abcdef0123456789abc',
@@ -89,9 +112,18 @@ describe('MergePanel', () => {
   async function mount(dto: WorkspaceDto = workspace(), mainBranch = 'main'): Promise<void> {
     fixture = TestBed.createComponent(MergePanel);
     fixture.componentRef.setInput('workspace', dto);
+    fixture.componentRef.setInput('repositoryId', 'repo-1');
     fixture.componentRef.setInput('mainBranch', mainBranch);
     element = fixture.nativeElement as HTMLElement;
     await settle();
+  }
+
+  /**
+   * Shorten the poll from seconds to milliseconds — only in the tests that drive a request to its
+   * end. Everywhere else the default keeps the wire quiet, so `http.verify()` stays meaningful.
+   */
+  function fastPolls(): void {
+    (fixture.componentInstance as unknown as { pollEveryMs: number }).pollEveryMs = 5;
   }
 
   /**
@@ -170,8 +202,8 @@ describe('MergePanel', () => {
     await mount();
     expect(button('Release…')).toBeTruthy();
     expect(element.querySelector('input.summary')).toBeNull();
-    expect(element.textContent).toContain('merges into');
-    expect(element.textContent).toContain('stamps a release version');
+    expect(element.textContent).toContain('asks for a release into');
+    expect(element.textContent).toContain('the gates land it when the build is green');
   });
 
   it('offers the integrate door to a workspace parented on anything else', async () => {
@@ -224,7 +256,7 @@ describe('MergePanel', () => {
     expect(button('Release into main').disabled).toBe(false);
   });
 
-  it('sends the trimmed summary to the release route and says what it is doing', async () => {
+  it('sends the trimmed summary to the release route and holds the request on screen', async () => {
     await mount();
     await press('Release…');
     await type('  teach the explorer to group runs  ');
@@ -232,10 +264,16 @@ describe('MergePanel', () => {
 
     const request = http.expectOne(RELEASE_URL);
     expect(request.request.body).toEqual({ summary: 'teach the explorer to group runs' });
-    expect(element.querySelector('.working')?.textContent).toContain('stamping a version');
+    expect(element.querySelector('.working')?.textContent).toContain('Asking for a release');
 
-    request.flush(RELEASE);
+    request.flush(REQUESTED);
     await settle();
+
+    // Nothing merged yet: the panel says so and follows the request rather than claiming success.
+    const surface = element.querySelector('.surface-requested');
+    expect(surface?.textContent).toContain('Release requested');
+    expect(surface?.textContent).toContain('Nothing has merged yet');
+    expect(surface?.textContent).toContain('9f2c1ab');
   });
 
   it('sends an integrate to its own route, and does not promise a version while working', async () => {
@@ -252,13 +290,21 @@ describe('MergePanel', () => {
     await settle();
   });
 
-  it('shows the version and the merge sha on success, and announces the release', async () => {
+  it('follows the request to RELEASED, shows the version, and announces the release', async () => {
     await mount();
+    fastPolls();
     const landed: MergeResult[] = [];
     fixture.componentInstance.merged.subscribe((result) => landed.push(result));
 
     await openAndSubmit();
-    http.expectOne(RELEASE_URL).flush(RELEASE);
+    http.expectOne(RELEASE_URL).flush(REQUESTED);
+    await settle();
+    expect(element.querySelector('.surface-requested')).toBeTruthy();
+    expect(landed).toEqual([]);
+
+    // The next poll finds the gates done and the release landed — the version exists only now.
+    await nextPoll();
+    http.expectOne(POLL_URL).flush(RELEASED);
     await settle();
 
     const done = element.querySelector('.surface-done');
@@ -266,16 +312,43 @@ describe('MergePanel', () => {
     expect(done?.textContent).toContain('9f2c1ab');
     expect(done?.textContent).toContain('explorer-grouping');
     // Seven characters is a label; the whole sha is the fact, and it is what gets pasted.
-    expect(done?.querySelector('.sha')?.getAttribute('title')).toBe(RELEASE.commitSha);
+    expect(done?.querySelector('.sha')?.getAttribute('title')).toBe(RELEASED.request.commitSha);
     expect(landed).toEqual([
       {
         action: 'release',
         version: '2026.731.193059',
-        commitSha: RELEASE.commitSha,
+        commitSha: RELEASED.request.commitSha,
         branch: 'explorer-grouping',
         targetBranch: 'main',
       },
     ]);
+  });
+
+  it('shows the gates’ refusal with the request’s own sentence', async () => {
+    await mount();
+    fastPolls();
+    const landed: MergeResult[] = [];
+    fixture.componentInstance.merged.subscribe((result) => landed.push(result));
+
+    await openAndSubmit();
+    http.expectOne(RELEASE_URL).flush(REQUESTED);
+    await settle();
+
+    await nextPoll();
+    http.expectOne(POLL_URL).flush({
+      request: {
+        ...RELEASED.request,
+        state: 'REJECTED',
+        version: null,
+        detail: 'Gating run run-9 finished FAILED for 9f2c1ab3',
+      },
+    });
+    await settle();
+
+    const surface = element.querySelector('.surface-gated');
+    expect(surface?.textContent).toContain('The gates did not release this');
+    expect(surface?.textContent).toContain('Gating run run-9 finished FAILED');
+    expect(landed).toEqual([]);
   });
 
   it('shows an integrate’s sha and target, and draws no empty version slot', async () => {
@@ -366,7 +439,7 @@ describe('MergePanel', () => {
 
     const retry = http.expectOne(RELEASE_URL);
     expect(retry.request.body).toEqual({ summary: 'teach the explorer to group runs' });
-    retry.flush(RELEASE);
+    retry.flush(REQUESTED);
     await settle();
   });
 
@@ -441,10 +514,12 @@ describe('MergePanel', () => {
     await submit();
     const retry = http.expectOne(RELEASE_URL);
     expect(retry.request.body).toEqual({ summary: 'land the task on its epic' });
-    retry.flush(RELEASE);
+    retry.flush(REQUESTED);
     await settle();
 
-    expect(element.querySelector('.surface-done')?.textContent).toContain('2026.731.193059');
+    expect(element.querySelector('.surface-requested')?.textContent).toContain(
+      'Release requested',
+    );
   });
 
   it('offers the summary back, not a loop, when the release door itself is guarded', async () => {
