@@ -39,8 +39,12 @@ export interface TerminalSize {
     }
     .terminal-host {
       box-sizing: border-box;
+      /* Only until relayout() has measured the room below the fold; these two bounds clamp what it
+         measures, so a cramped viewport still gets a usable terminal and a tall one is not all
+         terminal. */
       height: min(26rem, 55vh);
       min-height: 12rem;
+      max-height: 30rem;
       overflow: hidden;
       padding: 0.5rem;
       border: 1px solid #1f2937;
@@ -72,6 +76,7 @@ export class TerminalView {
   readonly resized = output<TerminalSize>();
 
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
+  private readonly root = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly ready = signal(false);
   protected readonly pendingText = computed(() => this.frames().chunks.join(''));
   protected readonly hint = computed(() =>
@@ -146,12 +151,52 @@ export class TerminalView {
     this.fitAddon = fitAddon;
 
     if (typeof ResizeObserver !== 'undefined') {
-      this.observer = new ResizeObserver(() => this.fit());
+      this.observer = new ResizeObserver(() => {
+        this.relayout();
+        this.fit();
+      });
       this.observer.observe(this.host().nativeElement);
     }
+    // Growing the pane does not resize a host whose height is a measured pixel value, so the
+    // observer above never hears about it; the window does.
+    const view = this.host().nativeElement.ownerDocument.defaultView;
+    if (view) {
+      const onViewportResize = () => this.relayout();
+      view.addEventListener('resize', onViewportResize);
+      this.disposables.push({
+        dispose: () => view.removeEventListener('resize', onViewportResize),
+      });
+    }
+    this.relayout();
     this.fit();
     this.ready.set(true);
     terminal.focus();
+  }
+
+  /**
+   * Size the host to the room between its top edge and the foot of the scrolling pane, so the
+   * bottom of the terminal — the row the prompt sits on — ends above the fold instead of just past
+   * it. `min(26rem, 55vh)` guessed at that room and lost by a line on shorter viewports, because
+   * what stands above the terminal is the page's business, not the viewport's. The stylesheet's
+   * min/max clamp the answer; only the measured middle is supplied here.
+   */
+  private relayout(): void {
+    const host = this.host().nativeElement;
+    const view = host.ownerDocument.defaultView;
+    // A hidden tab has no geometry to measure. Its ResizeObserver retries when visible.
+    if (!view || host.getClientRects().length === 0) return;
+    const pane = scrollPane(host);
+    // The host's offset from the top of the pane's *content*, scroll factored out, so the height
+    // is the same wherever the reader happens to have scrolled when this runs. The document is its
+    // own coordinate origin; an inner pane's border box stands still while its content moves.
+    const paneTop =
+      pane === host.ownerDocument.documentElement ? 0 : pane.getBoundingClientRect().top;
+    const top = host.getBoundingClientRect().top - paneTop + pane.scrollTop;
+    // Whatever the component draws under the host — the hint — keeps its place below the terminal.
+    const below =
+      this.root.nativeElement.getBoundingClientRect().bottom - host.getBoundingClientRect().bottom;
+    const foot = parseFloat(view.getComputedStyle(pane).paddingBottom) || 0;
+    host.style.height = `${Math.max(0, Math.floor(pane.clientHeight - top - below - foot))}px`;
   }
 
   private fit(): void {
@@ -170,4 +215,15 @@ export class TerminalView {
     this.terminal = null;
     this.fitAddon = null;
   }
+}
+
+/** The ancestor that scrolls this element: the chrome's content pane, or — on a bare `ng serve`
+ *  with no chrome around the page — the document itself. */
+function scrollPane(el: HTMLElement): HTMLElement {
+  const view = el.ownerDocument.defaultView;
+  for (let node = el.parentElement; node && view; node = node.parentElement) {
+    const { overflowY } = view.getComputedStyle(node);
+    if (overflowY === 'auto' || overflowY === 'scroll') return node;
+  }
+  return el.ownerDocument.documentElement;
 }
