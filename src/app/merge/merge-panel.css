@@ -186,10 +186,24 @@ code {
 
 .surface-conflict,
 .surface-refused,
+.surface-gated,
 .surface-unavailable {
   color: #991b1b;
   background: #fef2f2;
   border-color: #fecaca;
+}
+
+/* Not a failure colour: the ask is in and the gates are working — the calm in-flight blue. */
+.surface-requested {
+  color: #1e3a8a;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.surface-requested h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .surface-moved {

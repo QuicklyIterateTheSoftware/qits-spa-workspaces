@@ -101,6 +101,7 @@
     <div class="home">
       <app-merge-panel
         [workspace]="workspace()"
+        [repositoryId]="repositoryId()"
         [mainBranch]="mainBranch()"
         (merged)="merged.emit($event)"
         (refresh)="changed.emit()"

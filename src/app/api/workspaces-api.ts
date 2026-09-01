@@ -12,7 +12,8 @@ import type {
   DiscardResponse,
   IntegrateResponse,
   MergeRequest,
-  ReleaseResponse,
+  ReleaseRequestView,
+  ReleaseRequestedResponse,
   ServiceEventDto,
   ServiceEventsResponse,
   WorkspaceDto,
@@ -92,27 +93,40 @@ export class WorkspacesApi {
   }
 
   /**
-   * Release one workspace: merge its branch into the repository's default branch, stamped with a
-   * fresh version, as one commit that is then pushed.
+   * Ask for one workspace's release — **a release request, not a merge**. The door creates (or
+   * converges on, merge-request-shaped) the branch's open request in qits-projects; the quality
+   * gates settle it off the commit ledger and the release lands when the build goes green. Nothing
+   * has merged when this answers: poll {@link releaseRequest} until the request concludes.
    *
-   * **Not idempotent, by design** — each call stamps a new version from the clock, because two
-   * releases are two releases. Retry safety comes from the flow's shape instead: a failed release
-   * moved no ref, and a succeeded one whose answer was lost is refused on the retry with "already
-   * integrated" rather than producing an empty second release. So this method is called once per
-   * press and never automatically re-issued; every retry on this screen is a person pressing a
-   * button again.
+   * Still one call per press: a second press converges on the same open request rather than
+   * minting a second one, but this screen keeps the person in the loop rather than re-asking.
    *
    * Rejects with the `HttpErrorResponse`, which is what {@link
-   * ../merge/merge-outcome#classifyMergeFailure} reads to tell the 409s apart.
+   * ../merge/merge-outcome#classifyMergeFailure} reads to tell the guards' answers apart.
    */
-  async release(workspaceId: number, summary: string): Promise<ReleaseResponse> {
+  async release(workspaceId: number, summary: string): Promise<ReleaseRequestedResponse> {
     const body: MergeRequest = { summary };
     return firstValueFrom(
-      this.http.post<ReleaseResponse>(
+      this.http.post<ReleaseRequestedResponse>(
         `${this.base}/workspaces/api/workspaces/${encodeURIComponent(workspaceId)}/release`,
         body,
       ),
     );
+  }
+
+  /**
+   * One release request, straight from qits-projects — a same-origin absolute path for the reason
+   * {@link ../api/api-base} records: the gateway serves `/projects/api/…` beside this app, so the
+   * browser's session reaches both services with no machine token and no pre-flight.
+   */
+  async releaseRequest(repositoryId: string, requestId: string): Promise<ReleaseRequestView> {
+    const answer = await firstValueFrom(
+      this.http.get<{ request: ReleaseRequestView }>(
+        `${this.base}/projects/api/repositories/${encodeURIComponent(repositoryId)}` +
+          `/release-requests/${encodeURIComponent(requestId)}`,
+      ),
+    );
+    return answer.request;
   }
 
   /**

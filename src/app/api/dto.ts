@@ -228,17 +228,35 @@ export interface MergeRequest {
 export const SUMMARY_MAX_LENGTH = 100;
 
 /**
- * What a successful release answers.
+ * What the release door answers now: a release **request**, created or converged — nothing has
+ * merged yet. The quality gates settle it off the commit ledger and land it when the build goes
+ * green; this client polls the request ({@link ReleaseRequestView}) until it concludes.
  *
- * All three fields are worth showing and none is derivable from the others: `version` is the stamp
- * that was just minted (`2026.731.193059` — year, month+day, time, as integers), `commitSha` is the
- * merge commit that carries both the merge and the version bump, and `branch` is the source branch
- * that was released, which the merge's parents record as a sha but never as a name.
+ * `commitSha` is the head the request armed with — what will land, pinned; `detail` is the
+ * sentence explaining a request that is not simply pending.
  */
-export interface ReleaseResponse {
-  readonly version: string;
-  readonly commitSha: string;
+export interface ReleaseRequestedResponse {
+  readonly requestId: string;
+  readonly state: string;
   readonly branch: string;
+  readonly commitSha: string;
+  readonly detail: string | null;
+}
+
+/**
+ * One release request, as qits-projects answers a poll of it. `version` is the minted calver
+ * (`2026.731.193059`), present once the state is `RELEASED`. The state vocabulary is the
+ * service's and may grow: this client acts on `RELEASED`, `REJECTED`, `FAILED` and `WITHDRAWN`,
+ * and reads everything else as "still gating" — which is what an unknown new state also is not,
+ * but staying visibly in-flight beats guessing at a word the service just invented.
+ */
+export interface ReleaseRequestView {
+  readonly id: string;
+  readonly state: string;
+  readonly branch: string;
+  readonly commitSha: string;
+  readonly detail: string | null;
+  readonly version: string | null;
 }
 
 /**
