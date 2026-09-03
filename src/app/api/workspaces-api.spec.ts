@@ -7,12 +7,11 @@ import { WorkspacesApi } from './workspaces-api';
  * The paths, the envelopes and the request bodies, asserted once here so the page's spec can be
  * about rendering.
  *
- * Two assertions matter most. **The two doors are two routes** — `/release` stamps a version,
- * `/integrate` does not — so a spec that let one call the other would hide the whole change. And
- * **both bodies are frozen as `{summary}` and nothing else**: neither call names a target, because
- * release always lands on the repository's default branch and integrate always lands on the
- * workspace's parent, so a client that grew a `target` field would be describing an API that does
- * not exist.
+ * Two assertions matter most. **There is one door home and it is `/integrate`** — qits-workspaces'
+ * release door is gone, and this client must not be able to knock on it: releasing is a release
+ * request in qits-projects now. And **the body is frozen as `{summary}` and nothing else**: the call
+ * names no target, because an integrate always lands on the workspace's parent, so a client that
+ * grew a `target` field would be describing an API that does not exist.
  *
  * These are same-origin absolute paths on purpose; the SPA is served at `/workspaces/` behind the
  * gateway that also serves `/projects/api/…`, and that is what carries the session cookie to both.
@@ -83,30 +82,19 @@ describe('WorkspacesApi', () => {
     await expect(created).resolves.toMatchObject({ id: 12, workspaceId: 'fix-lint' });
   });
 
-  it('posts the summary and nothing else to the workspace’s release route', async () => {
-    const release = api.release(7, 'teach the explorer to group runs by repository');
-    const request = http.expectOne('/workspaces/api/workspaces/7/release');
-
-    expect(request.request.method).toBe('POST');
-    expect(request.request.body).toEqual({
-      summary: 'teach the explorer to group runs by repository',
-    });
-
-    request.flush({
-      version: '2026.731.193059',
-      commitSha: '9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456',
-      branch: 'explorer-grouping',
-    });
-    await expect(release).resolves.toEqual({
-      version: '2026.731.193059',
-      commitSha: '9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456',
-      branch: 'explorer-grouping',
-    });
+  /**
+   * The retired door, pinned as absent. qits-workspaces answers 404 on it now, and a client method
+   * that outlived the route would be a button that cannot work — so the pin is on this object's
+   * surface rather than on a request nobody makes.
+   */
+  it('has no release call at all, because that door left the service', () => {
+    expect('release' in api).toBe(false);
+    expect('releaseRequest' in api).toBe(false);
   });
 
   it('posts the summary to the integrate route, and reads back a version-free answer', async () => {
-    // The whole difference between the two doors is in this answer: an integrate is a merge into
-    // the workspace's parent and stamps nothing, so there is no version to read and none is invented.
+    // An integrate is a merge into the workspace's parent and stamps nothing, so there is no version
+    // to read and none is invented.
     const integrate = api.integrate(7, 'land the task on its epic');
     const request = http.expectOne('/workspaces/api/workspaces/7/integrate');
 
@@ -126,15 +114,6 @@ describe('WorkspacesApi', () => {
   });
 
   it('rejects with the HttpErrorResponse, so callers can read the status and the body', async () => {
-    const release = api.release(7, 'anything');
-    http
-      .expectOne('/workspaces/api/workspaces/7/release')
-      .flush({ message: 'merge conflict' }, { status: 409, statusText: 'Conflict' });
-
-    await expect(release).rejects.toBeInstanceOf(HttpErrorResponse);
-  });
-
-  it('rejects an integrate the same way, because the 409 family is shared', async () => {
     const integrate = api.integrate(7, 'anything');
     http
       .expectOne('/workspaces/api/workspaces/7/integrate')

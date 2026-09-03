@@ -1,25 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import type {
-  IntegrateResponse,
-  ReleaseRequestView,
-  ReleaseRequestedResponse,
-} from '../api/dto';
+import type { IntegrateResponse } from '../api/dto';
 import { describeError, serverMessage, statusOf } from '../ui/loadable';
 
 /**
- * Which of the two doors a workspace goes home through.
- *
- * They are two processes, not one with a toggle. `release` merges into the repository's default
- * branch and stamps a calver version onto it — the only way into that branch. `integrate` merges a
- * workspace into its **parent** branch and stamps nothing: a task workspace lands on its epic, and
- * releasing the epic is a separate, later act.
- */
-export type MergeAction = 'release' | 'integrate';
-
-/**
- * Why a release or an integrate did not happen — and the six answers are six different things a
- * person does something different about, which is the whole reason this type exists instead of one
- * red box. The 409 family is shared by both doors, so this classification is too.
+ * Why an integrate did not happen — and the answers are different things a person does something
+ * different about, which is the whole reason this type exists instead of one red box.
  *
  * - `conflict` — the branch does not apply to its target. Resolve it in the workspace and try
  *   again. **Nothing landed and the target did not move**, which is a property of the flow rather
@@ -31,18 +16,15 @@ export type MergeAction = 'release' | 'integrate';
  * - `already-integrated` — this branch is already an ancestor of the target. The work is in. This is
  *   what a lost 200 looks like on retry, and it is deliberately **not** an error to apologise for:
  *   the right response is to refresh the list and see the workspace resolved.
- * - `release-required` — the merge targets the repository's default branch, and that branch has one
- *   door. Nothing is wrong with the work: the wrong door was knocked on, which happens when the
- *   list's reading of the parent is stale. The way out is the other door, so this surface offers it
- *   rather than describing it.
+ * - `release-required` — the merge targets the repository's default branch, which qits-workspaces
+ *   does not write at all. Nothing is wrong with the work and nothing here can land it: the default
+ *   branch is written by a release request in qits-projects, so this surface says where to go rather
+ *   than offering a door that no longer exists.
  * - `refused` — the service declined for some other reason it stated: a blank summary, an unknown
  *   workspace, a workspace that is not ACTIVE, or the git host rejecting the push. Its own sentence
  *   is the most useful thing on screen, so it is shown verbatim.
  * - `unavailable` — the request never got an answer, or the service failed. Nothing is known about
  *   whether anything happened; refresh before assuming either way.
- * - `gated` — the release request concluded without releasing: the gates rejected it (a red
- *   build), the execution refused, or it was withdrawn. Never classified from an HTTP error — it
- *   is read off the polled request's terminal state, and the detail is the request's own sentence.
  */
 export type MergeFailureKind =
   | 'conflict'
@@ -50,10 +32,9 @@ export type MergeFailureKind =
   | 'already-integrated'
   | 'release-required'
   | 'refused'
-  | 'unavailable'
-  | 'gated';
+  | 'unavailable';
 
-/** A failed release or integrate, classified, with whatever the service said about it. */
+/** A failed integrate, classified, with whatever the service said about it. */
 export interface MergeFailure {
   readonly kind: MergeFailureKind;
   /** The HTTP status, or 0 when the request never reached a server. */
@@ -80,9 +61,8 @@ export interface MergeFailure {
  * reason of its own — a protected branch, a missing token — and offering "press it again" would be
  * advice that cannot work.
  *
- * `RELEASE_REQUIRED` is qits-workspaces' main-target guard, and both merge endpoints throw it. It
- * is the one 409 with a button rather than a sentence: the work is fine and the other door is right
- * there.
+ * `RELEASE_REQUIRED` is qits-workspaces' main-target guard, thrown by every merge endpoint left
+ * here. The work is fine; the branch it aims at simply is not this service's to write.
  */
 const REASONS: Readonly<Record<string, MergeFailureKind>> = {
   CONFLICT: 'conflict',
@@ -134,8 +114,7 @@ function conflictsOf(body: unknown): readonly string[] {
 }
 
 /**
- * Read a rejected merge for what it actually was. One function for both doors, because both answer
- * out of the same 409 family.
+ * Read a rejected merge for what it actually was.
  *
  * Everything that is not an HTTP answer — a network failure, a status of 0, a 5xx — is
  * `unavailable`, because in all three cases the client genuinely does not know what the server did.
@@ -169,78 +148,22 @@ export function classifyMergeFailure(error: unknown): MergeFailure {
 }
 
 /**
- * What a merge produced, whichever door it came through — the two answers, flattened to the one
- * shape this screen draws and records.
+ * What an integrate produced — the answer, in the shape this screen draws and records.
  *
- * `version` is `null` for an integrate, and that is the point of the type: an integrate stamps no
- * version, so the surface draws no version rather than an empty slot where one used to be.
+ * **There is no version on it, and that absence is the model and not an omission.** This shape once
+ * carried one because the same panel could release; the release door has left qits-workspaces
+ * entirely, so nothing reachable from here can stamp a version and a nullable field for it would be
+ * a slot no code path could ever fill.
  */
 export interface MergeResult {
-  readonly action: MergeAction;
-  readonly version: string | null;
   readonly commitSha: string;
   readonly branch: string;
   readonly targetBranch: string;
 }
 
-/**
- * A released request, as this screen holds it. The target is the repository's default branch, and
- * the version is the one the gates' execution minted — a `RELEASED` request always carries one,
- * and the placeholder stands in for the impossible case rather than the word `null` on screen.
- */
-export function releaseResult(request: ReleaseRequestView, targetBranch: string): MergeResult {
-  return {
-    action: 'release',
-    version: request.version ?? VERSION_PLACEHOLDER,
-    commitSha: request.commitSha,
-    branch: request.branch,
-    targetBranch,
-  };
-}
-
-/** The door's answer, as the first thing the polling loop holds — no version yet, by definition. */
-export function requestedView(answer: ReleaseRequestedResponse): ReleaseRequestView {
-  return {
-    id: answer.requestId,
-    state: answer.state,
-    branch: answer.branch,
-    commitSha: answer.commitSha,
-    detail: answer.detail,
-    version: null,
-  };
-}
-
-/**
- * The three ways a request concludes without releasing, one failure surface for all of them: the
- * gates said no (`REJECTED`, a red build — push the fix and press again, which re-arms the same
- * request), the execution refused (`FAILED`, standing with the door's words), or somebody withdrew
- * it. Everything else, unknown new states included, is still in flight.
- */
-export function gateOutcome(request: ReleaseRequestView): 'released' | 'refused' | null {
-  if (request.state === 'RELEASED') {
-    return 'released';
-  }
-  if (['REJECTED', 'FAILED', 'WITHDRAWN'].includes(request.state)) {
-    return 'refused';
-  }
-  return null;
-}
-
-/** A concluded-without-releasing request, folded into the failure shape this screen draws. */
-export function gateFailure(request: ReleaseRequestView): MergeFailure {
-  return {
-    kind: 'gated',
-    status: 200,
-    message: request.detail ?? `The request concluded ${request.state}.`,
-    conflicts: [],
-  };
-}
-
 /** An integrate, as this screen holds it. The target comes from the answer, not from the row. */
 export function integrateResult(response: IntegrateResponse): MergeResult {
   return {
-    action: 'integrate',
-    version: null,
     commitSha: response.commitSha,
     branch: response.branch,
     targetBranch: response.targetBranch,
@@ -258,30 +181,17 @@ export type MergeState =
   | { readonly kind: 'closed' }
   | { readonly kind: 'editing' }
   | { readonly kind: 'working' }
-  | { readonly kind: 'requested'; readonly request: ReleaseRequestView }
   | { readonly kind: 'done'; readonly result: MergeResult }
   | { readonly kind: 'failed'; readonly failure: MergeFailure };
-
-/** A release commit's subject, exactly as the service writes it. */
-export function releaseSubject(version: string, summary: string): string {
-  return `release(${version}): ${summary}`;
-}
 
 /**
  * An integrate commit's subject, exactly as the service writes it. The scope is the branch that was
  * integrated — the source. The target is not in the subject: it is where the commit sits.
+ *
+ * <p>This preview is exact, where the release preview it used to sit beside never could be: an
+ * integrate's scope is a branch the browser already knows, and a release's was a version taken from
+ * the server's clock. That asymmetry left with the release door.
  */
 export function integrateSubject(branch: string, summary: string): string {
   return `integrate(${branch}): ${summary}`;
 }
-
-/**
- * What stands in for the version in a release preview, before one exists.
- *
- * The stamp is taken from the *server's* clock at the start of the release, so the browser cannot
- * know it in advance and must not pretend to: a preview showing a plausible-looking
- * `2026.731.193059` would be a number that never appears in any commit. The placeholder says what
- * the shape is and that it is not yet decided. An integrate needs no placeholder — its scope is the
- * source branch, which this client already knows.
- */
-export const VERSION_PLACEHOLDER = 'YYYY.MMDD.HHMMSS';

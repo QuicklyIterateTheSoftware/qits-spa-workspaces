@@ -61,7 +61,7 @@ const PANEL_NOTES: Readonly<Record<string, string>> = {};
  * **On load this page reads `3 + T`, plus one stream**, where `T` is the selected tab's own budget:
  *
  * 1. `GET /projects/api/repositories/{repositoryId}` — the repository's default branch, and the only
- *    thing that decides whether this workspace is *released* or *integrated*.
+ *    thing that decides whether this workspace can be *integrated* from here at all.
  * 2. `GET /workspaces/api/workspaces?repositoryId=` — one entry feeding the header, the status strip
  *    **and** the activity bar. It is the list rather than the single-workspace read because the bar
  *    needs every workspace in the repository anyway, so reading one on top of it would be a second

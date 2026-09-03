@@ -238,17 +238,15 @@ export interface TechnicalProcessFrame {
 export const HINT_REMOTE_AUTH = 'remote-auth';
 
 /**
- * What both `POST …/{id}/release` and `POST …/{id}/integrate` take. One field, and no target.
+ * What `POST …/{id}/integrate` takes. One field, and no target.
  *
- * **The target is not a parameter in either call: it is derived from the workspace.** Release always
- * lands on the repository's default branch, integrate always lands on the workspace's parent branch,
- * and both are facts the service already holds — so a client that could name a target would be
- * describing an API that does not exist.
+ * **The target is not a parameter: it is derived from the workspace.** An integrate always lands on
+ * the workspace's parent branch, which is a fact the service already holds — so a client that could
+ * name a target would be describing an API that does not exist.
  *
- * The summary becomes the merge commit's subject, as `release(<version>): <summary>` or
- * `integrate(<branch>): <summary>`. It is capped at 100 characters on both sides: the conventional
- * 72-character subject budget minus roughly the 24 a scope costs, rounded to a number a person can
- * be told.
+ * The summary becomes the merge commit's subject, as `integrate(<branch>): <summary>`. It is capped
+ * at 100 characters on both sides: the conventional 72-character subject budget minus roughly the 24
+ * a scope costs, rounded to a number a person can be told.
  */
 export interface MergeRequest {
   readonly summary: string;
@@ -256,38 +254,6 @@ export interface MergeRequest {
 
 /** The summary cap, server-side `@Size(max = 100)` and the input's `maxlength` alike. */
 export const SUMMARY_MAX_LENGTH = 100;
-
-/**
- * What the release door answers now: a release **request**, created or converged — nothing has
- * merged yet. The quality gates settle it off the commit ledger and land it when the build goes
- * green; this client polls the request ({@link ReleaseRequestView}) until it concludes.
- *
- * `commitSha` is the head the request armed with — what will land, pinned; `detail` is the
- * sentence explaining a request that is not simply pending.
- */
-export interface ReleaseRequestedResponse {
-  readonly requestId: string;
-  readonly state: string;
-  readonly branch: string;
-  readonly commitSha: string;
-  readonly detail: string | null;
-}
-
-/**
- * One release request, as qits-projects answers a poll of it. `version` is the minted calver
- * (`2026.731.193059`), present once the state is `RELEASED`. The state vocabulary is the
- * service's and may grow: this client acts on `RELEASED`, `REJECTED`, `FAILED` and `WITHDRAWN`,
- * and reads everything else as "still gating" — which is what an unknown new state also is not,
- * but staying visibly in-flight beats guessing at a word the service just invented.
- */
-export interface ReleaseRequestView {
-  readonly id: string;
-  readonly state: string;
-  readonly branch: string;
-  readonly commitSha: string;
-  readonly detail: string | null;
-  readonly version: string | null;
-}
 
 /**
  * What a successful integrate answers. **No version** — an integrate stamps none, because it is a

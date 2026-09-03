@@ -13,8 +13,6 @@ import type {
   EditorSessionDto,
   IntegrateResponse,
   MergeRequest,
-  ReleaseRequestView,
-  ReleaseRequestedResponse,
   ServiceEventDto,
   ServiceEventsResponse,
   WorkspaceDto,
@@ -39,12 +37,12 @@ export const SERVICE_EVENT_PAGE_SIZE = 20;
  * workspace's running process and its history record, drive a container, open a project's editor,
  * and send work home.
  *
- * Release and integrate are **two processes, not one call with a flag**, and this client says so
- * with two methods against two routes. Release is the door into the default branch and stamps a
- * version; integrate merges a workspace into its parent and stamps nothing. Their answers differ in
- * the field that matters — a release has a version, an integrate has none — so folding them
- * together would produce a response type whose most useful field is optional for no reason a reader
- * could see.
+ * **There is one door home here and it is the integrate**, which is a narrowing of this client
+ * rather than a simplification of it. qits-workspaces used to own a release door too — it stamped a
+ * version onto the repository's default branch — and that door is gone: the default branch is
+ * written by a release request in qits-projects, which folds the request's sources, releases a tag
+ * and merges the default branch once the deployment is live. So there is no release call to make
+ * from a workspace, and this client makes none.
  *
  * `HttpClient` on the fetch backend rather than bare `fetch()`, for two reasons that both cash out
  * elsewhere: `HttpTestingController` is the only request-mocking story Angular ships, and every
@@ -95,53 +93,18 @@ export class WorkspacesApi {
   }
 
   /**
-   * Ask for one workspace's release — **a release request, not a merge**. The door creates (or
-   * converges on, merge-request-shaped) the branch's open request in qits-projects; the quality
-   * gates settle it off the commit ledger and the release lands when the build goes green. Nothing
-   * has merged when this answers: poll {@link releaseRequest} until the request concludes.
-   *
-   * Still one call per press: a second press converges on the same open request rather than
-   * minting a second one, but this screen keeps the person in the loop rather than re-asking.
-   *
-   * Rejects with the `HttpErrorResponse`, which is what {@link
-   * ../merge/merge-outcome#classifyMergeFailure} reads to tell the guards' answers apart.
-   */
-  async release(workspaceId: number, summary: string): Promise<ReleaseRequestedResponse> {
-    const body: MergeRequest = { summary };
-    return firstValueFrom(
-      this.http.post<ReleaseRequestedResponse>(
-        `${this.base}/workspaces/api/workspaces/${encodeURIComponent(workspaceId)}/release`,
-        body,
-      ),
-    );
-  }
-
-  /**
-   * One release request, straight from qits-projects — a same-origin absolute path for the reason
-   * {@link ../api/api-base} records: the gateway serves `/projects/api/…` beside this app, so the
-   * browser's session reaches both services with no machine token and no pre-flight.
-   */
-  async releaseRequest(repositoryId: string, requestId: string): Promise<ReleaseRequestView> {
-    const answer = await firstValueFrom(
-      this.http.get<{ request: ReleaseRequestView }>(
-        `${this.base}/projects/api/repositories/${encodeURIComponent(repositoryId)}` +
-          `/release-requests/${encodeURIComponent(requestId)}`,
-      ),
-    );
-    return answer.request;
-  }
-
-  /**
    * Integrate one workspace: merge its branch into its **parent** branch and push. No version is
    * stamped and nothing is released — a task workspace lands on its epic, and the epic is what is
    * released later.
    *
-   * The target is not sent, for the same reason the release target is not: the parent is the
-   * service's own fact about the workspace. A workspace whose parent *is* the default branch is
-   * refused here with a 409 pointing at {@link release} — the server guarding the one door into the
-   * default branch, rather than trusting this client's reading of the row.
+   * The target is not sent: the parent is the service's own fact about the workspace. A workspace
+   * whose parent *is* the default branch is refused with a 409 carrying `RELEASE_REQUIRED` — the
+   * service guarding a branch it does not write at all, and naming the release request in
+   * qits-projects that does. There is no door here to hand such a workspace on to, which is why
+   * that surface is a sentence now rather than a second button.
    *
-   * Rejects with the `HttpErrorResponse` exactly as {@link release} does; the 409 family is shared.
+   * Rejects with the `HttpErrorResponse`, which is what {@link
+   * ../merge/merge-outcome#classifyMergeFailure} reads to tell the guards' answers apart.
    */
   async integrate(workspaceId: number, summary: string): Promise<IntegrateResponse> {
     const body: MergeRequest = { summary };

@@ -50,7 +50,6 @@ describe('StatusStrip', () => {
   ) => {
     const fixture = TestBed.createComponent(StatusStrip);
     fixture.componentRef.setInput('workspace', workspace(over));
-    fixture.componentRef.setInput('repositoryId', 'repo-1');
     fixture.componentRef.setInput('mainBranch', options.mainBranch ?? 'main');
     fixture.componentRef.setInput('reachability', options.reachability ?? 'unknown');
     await fixture.whenStable();
@@ -131,13 +130,14 @@ describe('StatusStrip', () => {
     const fixture = await render({ parent: 'epic/widgets' }, { mainBranch: 'main' });
 
     expect(text(fixture)).toContain('Integrate');
-    expect(text(fixture)).not.toContain('Release into');
   });
 
-  it('offers release, and only release, for work parented on the default branch', async () => {
+  /** The default branch is written by a release request in qits-projects, and by nothing here. */
+  it('offers no door at all for work parented on the default branch', async () => {
     const fixture = await render({ parent: 'main' }, { mainBranch: 'main' });
 
-    expect(text(fixture)).toContain('Release');
+    expect(text(fixture)).not.toContain('Integrate');
+    expect(text(fixture)).toContain('release request');
   });
 
   it('shows the runtime error the list used to keep to itself', async () => {
