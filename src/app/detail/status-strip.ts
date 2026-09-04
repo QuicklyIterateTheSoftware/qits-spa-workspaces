@@ -44,12 +44,13 @@ const RUNTIME_TONES: Readonly<Record<string, QitsBadgeTone>> = {
  * the resolution status. The list keeps its verbs too — that is where you act on a workspace you are
  * not inside.
  *
- * **One door, never two.** Release is offered when the work goes home to the repository's default
- * branch and Integrate when it goes anywhere else, read from the workspace's parent exactly as the
- * list reads it. Offering both would put a button on the page that answers 409 every time. The
- * reading can be stale and the service says so with `RELEASE_REQUIRED`, which is the only thing that
- * ever changes the door — all of which {@link ../merge/merge-panel#MergePanel} already handles, so
- * this strip hands it the workspace and the default branch and gets out of the way.
+ * **One door, and sometimes none.** Integrate is offered when the work goes home to its parent
+ * branch, read from the workspace's parent exactly as the list reads it. Work parented on the
+ * repository's default branch gets no button at all: that branch is written by a release request in
+ * qits-projects and by nothing here, so the panel says where releasing happens instead. The reading
+ * can be stale and the service says so with `RELEASE_REQUIRED` — all of which {@link
+ * ../merge/merge-panel#MergePanel} already handles, so this strip hands it the workspace and the
+ * default branch and gets out of the way.
  *
  * **Recreate is disabled unless the tree is provably clean.** The service refuses with a 400
  * otherwise, and `clean: null` — what a workspace with no live daemon reports — counts as not clean.
@@ -78,10 +79,7 @@ export class StatusStrip {
   /** The workspace, as the repository's listing last reported it. */
   readonly workspace = input.required<WorkspaceDto>();
 
-  /** The repository the page came in through — the merge panel's release requests file under it. */
-  readonly repositoryId = input.required<string>();
-
-  /** The repository's default branch — what decides the door. */
+  /** The repository's default branch — what decides whether there is a door. */
   readonly mainBranch = input.required<string>();
 
   /** What the container proxy last said about the daemon. */

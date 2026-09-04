@@ -19,6 +19,16 @@ code {
   font-size: 0.85rem;
 }
 
+/*
+ * A row with no way home from this screen. It is prose rather than a disabled button because there
+ * is nothing here to enable: the sentence is the whole affordance, and it names where to go.
+ */
+.no-door {
+  color: #6b7280;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
 /* --- the summary form ------------------------------------------------------------------------ */
 
 .editor {
@@ -174,11 +184,6 @@ code {
   margin: 0;
 }
 
-.version {
-  font-size: 1rem;
-  font-weight: 600;
-}
-
 .note {
   font-size: 0.85rem;
   color: #047857;
@@ -186,24 +191,10 @@ code {
 
 .surface-conflict,
 .surface-refused,
-.surface-gated,
 .surface-unavailable {
   color: #991b1b;
   background: #fef2f2;
   border-color: #fecaca;
-}
-
-/* Not a failure colour: the ask is in and the gates are working — the calm in-flight blue. */
-.surface-requested {
-  color: #1e3a8a;
-  background: #eff6ff;
-  border-color: #bfdbfe;
-}
-
-.surface-requested h4 {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 .surface-moved {

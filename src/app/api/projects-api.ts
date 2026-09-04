@@ -70,9 +70,10 @@ export class ProjectsApi {
    * One repository, by id — and the detail view's reason for talking to qits-projects at all.
    *
    * It reads exactly one field in anger: `mainBranch`, which is what decides whether a workspace
-   * offers **Release** or **Integrate**. That reading has to come from the service that owns
-   * repositories; every repository on this platform says "main" today and none of them promises to,
-   * so assuming the string would put the wrong door on the page the day one does not.
+   * offers **Integrate** or no door at all — work parented on the default branch goes home through a
+   * release request in qits-projects, not from here. That reading has to come from the service that
+   * owns repositories; every repository on this platform says "main" today and none of them promises
+   * to, so assuming the string would put the wrong affordance on the page the day one does not.
    *
    * The detail route carries no project id, so the by-id read is not a shortcut past
    * {@link repositories} — it is the only way in from a deep link.

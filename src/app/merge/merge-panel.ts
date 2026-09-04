@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   computed,
   inject,
   input,
@@ -14,16 +13,9 @@ import { SUMMARY_MAX_LENGTH } from '../api/dto';
 import { WorkspacesApi } from '../api/workspaces-api';
 import { shortSha } from '../ui/format';
 import {
-  VERSION_PLACEHOLDER,
   classifyMergeFailure,
-  gateFailure,
-  gateOutcome,
   integrateResult,
   integrateSubject,
-  releaseResult,
-  releaseSubject,
-  requestedView,
-  type MergeAction,
   type MergeFailure,
   type MergeResult,
   type MergeState,
@@ -33,13 +25,18 @@ import {
  * One workspace's way home: the button, the summary it asks for, and every answer the service can
  * give — each drawn as its own surface.
  *
- * **One door per row, not two buttons.** Release and integrate are two processes and a workspace is
- * only ever eligible for one of them: work off the default branch is *released* into it, and work
- * off any other branch is *integrated* into that parent. Which one a row offers is therefore read
- * from the workspace's `parent`, not chosen by the person pressing — offering both would put a
- * button on every row that answers 409 every time it is pressed. The reading can be out of date,
- * and the service says so with `RELEASE_REQUIRED`: that surface hands over the other door, which is
- * the only thing that ever changes a row's door.
+ * **There is one door here now, and some rows have none.** qits-workspaces used to own a release
+ * door beside the integrate — work branched off the default branch was *released* into it, with a
+ * version stamped — and that door has left the service: the default branch is written by a release
+ * request in qits-projects, which folds the request's sources, releases a tag and merges the default
+ * branch once the deployment is live. So this panel integrates, and a workspace whose parent *is*
+ * the default branch is told where releasing happens instead of being offered a button that would
+ * 404. Drawing a dead button would be worse than drawing none: it would read as the platform being
+ * broken rather than as the work belonging somewhere else.
+ *
+ * **The service is still the authority on the target**, and says so with `RELEASE_REQUIRED` when a
+ * row's reading of its parent is stale. That surface is a sentence rather than a hand-over now, for
+ * the same reason: there is no other door in this application to hand anybody to.
  *
  * **The panel owns its request.** Merging one workspace is genuinely independent of merging
  * another: one row's conflict says nothing about the next row, and a page-level "the merge failed"
@@ -50,9 +47,9 @@ import {
  * eight open text fields is a form, not a list, so the summary input appears on the press and the
  * row is otherwise one line.
  *
- * **The summary survives every failure.** Three of the six outcomes are retried by pressing a
- * button again — `moved` is resolved by nothing but a second attempt — and a person who has to
- * retype their sentence to retry will write a worse one.
+ * **The summary survives every failure.** Half the outcomes are retried by pressing a button
+ * again — `moved` is resolved by nothing but a second attempt — and a person who has to retype
+ * their sentence to retry will write a worse one.
  */
 @Component({
   selector: 'app-merge-panel',
@@ -68,19 +65,11 @@ export class MergePanel {
   readonly workspace = input.required<WorkspaceDto>();
 
   /**
-   * The repository the workspace belongs to — what a release request is filed under, and therefore
-   * the first half of the poll's address. An input rather than a field on {@link workspace}
-   * because `WorkspaceDto` does not carry it; the page that mounted this panel came in through the
-   * repository and has it to give.
-   */
-  readonly repositoryId = input.required<string>();
-
-  /**
    * The repository's default branch, from qits-projects' `Repository.mainBranch`.
    *
-   * It is what decides which door this row offers, and it is displayed rather than assumed: every
-   * repository on this platform says "main" today and none of them promises to, so the word is read
-   * from the service that owns it.
+   * It is what decides whether this row has a door at all, and it is displayed rather than assumed:
+   * every repository on this platform says "main" today and none of them promises to, so the word is
+   * read from the service that owns it.
    */
   readonly mainBranch = input.required<string>();
 
@@ -97,14 +86,6 @@ export class MergePanel {
   protected readonly shortSha = shortSha;
 
   /**
-   * The door the service told this row to use, once it has said so. Null until then.
-   *
-   * The only writer is the `RELEASE_REQUIRED` way out: qits-workspaces' main-target guard says this
-   * work goes through the release door, and the service outranks the row's own reading.
-   */
-  private readonly chosenDoor = signal<MergeAction | null>(null);
-
-  /**
    * The workspace's parent branch, or the default branch when the service reports no parent.
    *
    * A parentless workspace is treated as branched off the default branch, which is what it is: the
@@ -113,45 +94,22 @@ export class MergePanel {
    */
   private readonly parentBranch = computed(() => this.workspace().parent ?? this.mainBranch());
 
+  /** Where this press will land: the parent branch, which is the only place an integrate goes. */
+  protected readonly target = this.parentBranch;
+
   /**
-   * Release or integrate, read from where the work goes rather than chosen by the person pressing.
+   * Whether this row has a way home from here at all.
    *
-   * This is the client's reading of the row and never the authority: an integrate aimed at the
-   * default branch comes back `RELEASE_REQUIRED`, and {@link releaseInstead} then lets the service's
-   * answer overrule the reading — which is what makes a stale `parent` a button rather than a
-   * dead end.
+   * <p>False for work parented on the default branch: that branch is written by a release request in
+   * qits-projects and by nothing in this application, so the row draws where to go rather than a
+   * button. The reading can be stale — the service's `RELEASE_REQUIRED` is the authority — but a
+   * stale reading here costs a person one refusal, where offering the press would cost them a 404.
    */
-  protected readonly action = computed<MergeAction>(
-    () =>
-      this.chosenDoor() ?? (this.parentBranch() === this.mainBranch() ? 'release' : 'integrate'),
-  );
-
-  /** Where this press will land. It follows the door, so every surface names the right branch. */
-  protected readonly target = computed(() =>
-    this.isRelease() ? this.mainBranch() : this.parentBranch(),
-  );
-
-  protected readonly isRelease = computed(() => this.action() === 'release');
-
-  /** The word for this row's door, capitalised for a heading or a button. */
-  protected readonly actionLabel = computed(() => (this.isRelease() ? 'Release' : 'Integrate'));
+  protected readonly hasDoor = computed(() => this.parentBranch() !== this.mainBranch());
 
   /** The branch being merged — the subject's scope on an integrate, and the label everywhere. */
   protected readonly sourceBranch = computed(
     () => this.workspace().branch ?? this.workspace().workspaceId,
-  );
-
-  /**
-   * What a lost race cost, in this row's terms. A release spends a version and an integrate does
-   * not, and saying "no version was spent" under a door that stamps none would be noise.
-   */
-  protected readonly nothingLanded = computed(() =>
-    this.isRelease() ? 'Nothing landed here and no version was spent.' : 'Nothing landed here.',
-  );
-
-  /** The same distinction, for a branch that turns out to be in already. */
-  protected readonly nothingSecond = computed(() =>
-    this.isRelease() ? 'no second release was made.' : 'nothing was merged a second time.',
   );
 
   /** The trimmed summary — what is validated, what is sent, and what the preview shows. */
@@ -164,20 +122,13 @@ export class MergePanel {
   protected readonly remaining = computed(() => SUMMARY_MAX_LENGTH - this.summary().length);
 
   /**
-   * The commit this will write.
-   *
-   * A release's version comes from the server's clock at the start of the call, so the browser
-   * cannot know it and must not invent a plausible-looking one — the placeholder stands in its
-   * place. An integrate's scope is the source branch, which is already known, so that preview is
-   * the exact subject. What the preview is really for is the *sentence*: the scope is prepended for
-   * you, so "release the new explorer" reads as a stutter and the preview is where you notice.
+   * The commit this will write, exactly — the scope is the source branch, which this client already
+   * knows. What the preview is really for is the *sentence*: the scope is prepended for you, so
+   * "integrate the new explorer" reads as a stutter and the preview is where you notice.
    */
-  protected readonly preview = computed(() => {
-    const summary = this.trimmed() || '…';
-    return this.isRelease()
-      ? releaseSubject(VERSION_PLACEHOLDER, summary)
-      : integrateSubject(this.sourceBranch(), summary);
-  });
+  protected readonly preview = computed(() =>
+    integrateSubject(this.sourceBranch(), this.trimmed() || '…'),
+  );
 
   protected readonly failure = computed<MergeFailure | null>(() => {
     const state = this.state();
@@ -187,23 +138,6 @@ export class MergePanel {
   protected readonly result = computed<MergeResult | null>(() => {
     const state = this.state();
     return state.kind === 'done' ? state.result : null;
-  });
-
-  /** The in-flight release request, while the gates hold it. Null in every other state. */
-  protected readonly request = computed(() => {
-    const state = this.state();
-    return state.kind === 'requested' ? state.request : null;
-  });
-
-  /** The gating sentence for the state on hand — the words are this screen's, not the wire's. */
-  protected readonly requestProgress = computed(() => {
-    const request = this.request();
-    if (request === null) {
-      return '';
-    }
-    return request.state === 'READY'
-      ? 'The gates passed — landing now.'
-      : 'Waiting for the build to go green — the gates release it then.';
   });
 
   protected open(): void {
@@ -219,96 +153,31 @@ export class MergePanel {
     this.state.set({ kind: 'editing' });
   }
 
-  /**
-   * Take the door the service named, and stop at the summary rather than sending it.
-   *
-   * The switch changes what the commit will be — `integrate(<branch>)` becomes
-   * `release(<version>)`, and this press will stamp a version and publish — so it goes back to the
-   * form with the sentence intact and the new preview showing. One more press sends it. Firing
-   * straight through would turn one press on the wrong door into a release nobody confirmed.
-   */
-  protected releaseInstead(): void {
-    this.chosenDoor.set('release');
-    this.state.set({ kind: 'editing' });
-  }
-
   protected onSummaryInput(event: Event): void {
     this.summary.set((event.target as HTMLInputElement).value);
   }
 
   /**
-   * One press, one attempt, never re-issued automatically. An integrate is a merge and the old
-   * rule holds verbatim. A release is an *ask* now — the door creates (or converges on) the
-   * branch's open request and the gates land it — so this press concludes with the request on
-   * screen and {@link followRequest} polling it to its end. `merged` is emitted only when the
-   * request reads RELEASED, because that is when this row actually stops existing.
+   * One press, one attempt, never re-issued automatically — the retry is always a person's, because
+   * a lost answer and a refusal look the same from here and only one of them is worth repeating.
+   *
+   * <p>It concludes on this call: an integrate is a merge, and when it answers the work is on its
+   * parent. Nothing is polled afterwards — the panel used to follow a release request through its
+   * gates, and that whole loop left with the release door.
    */
   protected async submit(): Promise<void> {
-    const busy = this.state().kind;
-    if (!this.submittable() || busy === 'working' || busy === 'requested') {
+    if (!this.submittable() || this.state().kind === 'working') {
       return;
     }
     const id = this.workspace().id;
     const summary = this.trimmed();
     this.state.set({ kind: 'working' });
     try {
-      if (this.isRelease()) {
-        const request = requestedView(await this.api.release(id, summary));
-        this.state.set({ kind: 'requested', request });
-        void this.followRequest(request.id);
-        return;
-      }
       const result = integrateResult(await this.api.integrate(id, summary));
       this.state.set({ kind: 'done', result });
       this.merged.emit(result);
     } catch (error) {
       this.state.set({ kind: 'failed', failure: classifyMergeFailure(error) });
-    }
-  }
-
-  private readonly destroyRef = inject(DestroyRef);
-  private destroyed = false;
-  private readonly stopOnDestroy = this.destroyRef.onDestroy(() => (this.destroyed = true));
-
-  /** How long between polls of an in-flight request — CI is minutes, so seconds are plenty. A
-   * field rather than a constant so the suite can shorten it to milliseconds. */
-  protected pollEveryMs = 3_000;
-
-  /**
-   * Poll the request until it concludes. A poll that fails is skipped, not fatal — the request is
-   * server-side state and the next tick reads it again; only a terminal state ends the loop. The
-   * loop also ends when this panel stops showing that request (closed, destroyed, or a newer
-   * press), so a stale loop can never overwrite a newer state.
-   */
-  private async followRequest(requestId: string): Promise<void> {
-    for (;;) {
-      await new Promise((resolve) => setTimeout(resolve, this.pollEveryMs));
-      const current = this.state();
-      if (this.destroyed || current.kind !== 'requested' || current.request.id !== requestId) {
-        return;
-      }
-      let request;
-      try {
-        request = await this.api.releaseRequest(this.repositoryId(), requestId);
-      } catch {
-        continue;
-      }
-      const still = this.state();
-      if (this.destroyed || still.kind !== 'requested' || still.request.id !== requestId) {
-        return;
-      }
-      const outcome = gateOutcome(request);
-      if (outcome === 'released') {
-        const result = releaseResult(request, this.mainBranch());
-        this.state.set({ kind: 'done', result });
-        this.merged.emit(result);
-        return;
-      }
-      if (outcome === 'refused') {
-        this.state.set({ kind: 'failed', failure: gateFailure(request) });
-        return;
-      }
-      this.state.set({ kind: 'requested', request });
     }
   }
 

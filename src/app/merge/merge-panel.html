@@ -1,16 +1,18 @@
 @switch (state().kind) {
   @case ('closed') {
     <div class="closed">
-      <qits-button variant="primary" size="sm" (pressed)="open()">{{ actionLabel() }}…</qits-button>
-      @if (isRelease()) {
-        <span class="target"
-          >asks for a release into <code>{{ mainBranch() }}</code> — the gates land it when the
-          build is green</span
-        >
-      } @else {
+      @if (hasDoor()) {
+        <qits-button variant="primary" size="sm" (pressed)="open()">Integrate…</qits-button>
         <span class="target"
           >merges into <code>{{ target() }}</code
           >, no release</span
+        >
+      } @else {
+        <span class="no-door"
+          >This work goes into <code>{{ mainBranch() }}</code
+          >, which is written by the release flow alone. Ask for a release request on this
+          repository in Projects — it folds the sources, releases the tag, and merges
+          <code>{{ mainBranch() }}</code> once the deployment is live.</span
         >
       }
     </div>
@@ -39,7 +41,7 @@
       </p>
       <div class="editor-actions">
         <qits-button type="submit" variant="primary" size="sm" [disabled]="!submittable()">
-          {{ actionLabel() }} into {{ target() }}
+          Integrate into {{ target() }}
         </qits-button>
         <qits-button variant="ghost" size="sm" (pressed)="close()">Cancel</qits-button>
       </div>
@@ -49,51 +51,16 @@
   @case ('working') {
     <p class="working" role="status">
       <span class="spinner" aria-hidden="true"></span>
-      @if (isRelease()) {
-        Asking for a release into <code>{{ target() }}</code
-        >…
-      } @else {
-        Merging and pushing to <code>{{ target() }}</code
-        >…
-      }
+      Merging and pushing to <code>{{ target() }}</code
+      >…
     </p>
-  }
-
-  @case ('requested') {
-    @if (request(); as pending) {
-      <div class="surface surface-requested" role="status">
-        <h4>
-          <span class="spinner" aria-hidden="true"></span>
-          Release requested
-        </h4>
-        <p>
-          Nothing has merged yet: the request is gated on the build of
-          <code class="sha" [title]="pending.commitSha">{{ shortSha(pending.commitSha) }}</code
-          >. {{ requestProgress() }}
-        </p>
-        <p class="note">
-          This panel follows the request and says how it concluded. Leaving the page loses nothing —
-          the gates land it either way.
-        </p>
-      </div>
-    }
   }
 
   @case ('done') {
     @if (result(); as merge) {
       <div class="surface surface-done" role="status">
-        @if (merge.version) {
-          <h4>Released {{ merge.version }}</h4>
-        } @else {
-          <h4>Integrated into {{ merge.targetBranch }}</h4>
-        }
+        <h4>Integrated into {{ merge.targetBranch }}</h4>
         <dl>
-          @if (merge.version) {
-            <dt>Version</dt>
-            <dd>
-              <code class="version">{{ merge.version }}</code>
-            </dd>
-          }
           <dt>Merge commit</dt>
           <dd>
             <code class="sha" [title]="merge.commitSha">{{ shortSha(merge.commitSha) }}</code>
@@ -103,19 +70,11 @@
             <code>{{ merge.branch }}</code> → <code>{{ merge.targetBranch }}</code>
           </dd>
         </dl>
-        @if (merge.version) {
-          <p class="note">
-            One commit carries both the merge and the version bump. The push is an ordinary push, so
-            the ordinary pipeline is building it now.
-          </p>
-        } @else {
-          <p class="note">
-            A merge and nothing more: no version was stamped and nothing was released. The release
-            happens when <code>{{ merge.targetBranch }}</code> itself goes into
-            <code>{{ mainBranch() }}</code
-            >.
-          </p>
-        }
+        <p class="note">
+          A merge and nothing more: no version was stamped and nothing was released. The release
+          happens when <code>{{ merge.targetBranch }}</code> is named on a release request in
+          Projects.
+        </p>
       </div>
     }
   }
@@ -161,8 +120,8 @@
               <code>{{ target() }}</code> moved
             </h4>
             <p>
-              Another merge landed while this one was running, so the push was rejected.
-              {{ nothingLanded() }} Pressing again is the whole fix.
+              Another merge landed while this one was running, so the push was rejected. Nothing
+              landed here. Pressing again is the whole fix.
             </p>
             <p class="said">{{ problem.message }}</p>
             <div class="surface-actions">
@@ -179,8 +138,8 @@
             <h4>Already integrated</h4>
             <p>
               This branch is already in <code>{{ target() }}</code
-              >, so {{ nothingSecond() }} That is what a lost answer looks like on a retry: the work
-              is in, and this list is simply out of date.
+              >, so nothing was merged a second time. That is what a lost answer looks like on a
+              retry: the work is in, and this list is simply out of date.
             </p>
             <p class="said">{{ problem.message }}</p>
             <div class="surface-actions">
@@ -194,44 +153,19 @@
         @case ('release-required') {
           <div class="surface surface-release-required" role="alert">
             <h4>
-              <code>{{ mainBranch() }}</code> has one door
+              <code>{{ mainBranch() }}</code> is not written here
             </h4>
             <p>
               This work goes into <code>{{ mainBranch() }}</code
-              >, and the only way in is a release — a merge with a version stamped on it. Nothing
-              landed and nothing is wrong with the branch; this row read its parent from a listing
-              that has since moved on.
+              >, and qits-workspaces does not write that branch at all. Nothing landed and nothing
+              is wrong with the work — releasing is a release request on this repository in
+              Projects, which folds the sources, releases the tag, and merges
+              <code>{{ mainBranch() }}</code> once the deployment is live.
             </p>
             <p class="said">{{ problem.message }}</p>
             <div class="surface-actions">
-              @if (isRelease()) {
-                <qits-button variant="primary" size="sm" (pressed)="edit()">
-                  Back to the summary
-                </qits-button>
-              } @else {
-                <qits-button variant="primary" size="sm" (pressed)="releaseInstead()">
-                  Release into {{ mainBranch() }} instead
-                </qits-button>
-              }
-              <qits-button variant="ghost" size="sm" (pressed)="askRefresh()">
+              <qits-button variant="primary" size="sm" (pressed)="askRefresh()">
                 Refresh the list
-              </qits-button>
-            </div>
-          </div>
-        }
-
-        @case ('gated') {
-          <div class="surface surface-gated" role="alert">
-            <h4>The gates did not release this</h4>
-            <p>
-              Nothing merged and <code>{{ target() }}</code> is unchanged. A rejected request comes
-              back to life on the next push: land the fix on this branch and press again — the same
-              request re-arms onto the new head.
-            </p>
-            <p class="said">{{ problem.message }}</p>
-            <div class="surface-actions">
-              <qits-button variant="secondary" size="sm" (pressed)="edit()">
-                Back to the summary
               </qits-button>
               <qits-button variant="ghost" size="sm" (pressed)="close()">Close</qits-button>
             </div>
@@ -240,7 +174,7 @@
 
         @case ('refused') {
           <div class="surface surface-refused" role="alert">
-            <h4>{{ actionLabel() }} was refused</h4>
+            <h4>Integrate was refused</h4>
             <p class="said">{{ problem.message }}</p>
             <div class="surface-actions">
               <qits-button variant="secondary" size="sm" (pressed)="edit()">

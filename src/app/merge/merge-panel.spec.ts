@@ -6,24 +6,24 @@ import type { MergeResult } from './merge-outcome';
 import { MergePanel } from './merge-panel';
 
 /**
- * Every state this affordance can be in, one `it` at a time, through both of its doors.
+ * Every state this affordance can be in, one `it` at a time.
  *
- * **Which door a row offers is read from the workspace, not chosen** — a workspace off the default
- * branch releases, anything else integrates into its parent — so the first assertions here are
- * about a row picking the right one. Getting that wrong puts a button on a row that answers 409
- * every time it is pressed.
+ * **Whether a row has a door at all is read from the workspace, not chosen** — work parented on
+ * anything but the repository's default branch integrates into that parent, and work parented on the
+ * default branch has no way home from this application at all: qits-workspaces does not write that
+ * branch, a release request in qits-projects does. So the first assertions here are about a row
+ * drawing the right one of those two. Getting it wrong either hides the door on work that has one,
+ * or puts a button on a row that cannot possibly work.
  *
- * The six failure surfaces are the reason this suite is long, and they earn it: they look identical
- * in review (six `@case` blocks) and completely different on screen, and getting one wrong sends a
- * person to fix a conflict that does not exist or to re-press a button that will never work. So
- * each is asserted by what it *says*, not by which branch rendered. They are shared by both doors,
- * which is asserted rather than assumed.
+ * The failure surfaces are the reason this suite is long, and they earn it: they look identical in
+ * review (six `@case` blocks) and completely different on screen, and getting one wrong sends a
+ * person to fix a conflict that does not exist or to re-press a button that will never work. So each
+ * is asserted by what it *says*, not by which branch rendered.
  *
  * Two assertions carry more than their length. **The summary survives a failure**, because `moved`
  * is resolved by pressing the same button again and a person who has to retype their sentence will
- * write a worse one. And **the retry is never automatic**, because a release is not idempotent —
- * each call stamps a new version — so a client that retried on its own could publish a release
- * nobody asked for.
+ * write a worse one. And **the retry is never automatic**, because a lost answer and a refusal look
+ * the same from here and only one of them is worth repeating.
  */
 describe('MergePanel', () => {
   let fixture: ComponentFixture<MergePanel>;
@@ -53,7 +53,7 @@ describe('MergePanel', () => {
     ...over,
   });
 
-  /** A task workspace: parented on an epic, so its door is integrate. */
+  /** A task workspace: parented on an epic, so it has a door. */
   const STACKED = workspace({
     id: 7,
     workspaceId: 'group-runs',
@@ -61,42 +61,12 @@ describe('MergePanel', () => {
     branch: 'task/group-runs',
   });
 
-  /** What the flipped door answers: a request, not a landed release. */
-  const REQUESTED = {
-    requestId: 'req-1',
-    state: 'PENDING',
-    branch: 'explorer-grouping',
-    commitSha: '9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456',
-    detail: null,
-  };
-
-  /** The same request, polled to its released end. */
-  const RELEASED = {
-    request: {
-      id: 'req-1',
-      state: 'RELEASED',
-      branch: 'explorer-grouping',
-      commitSha: '9f2c1ab3d4e5f60718293a4b5c6d7e8f90123456',
-      detail: null,
-      version: '2026.731.193059',
-    },
-  };
-
-  const POLL_URL = '/projects/api/repositories/repo-1/release-requests/req-1';
-
-  /** Shorten the poll to milliseconds, then wait out one tick so the request goes on the wire. */
-  async function nextPoll(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 15));
-    await settle();
-  }
-
   const INTEGRATE = {
     commitSha: '4b5c6d7e8f90123456789abcdef0123456789abc',
     branch: 'task/group-runs',
     targetBranch: 'epic/explorer',
   };
 
-  const RELEASE_URL = '/workspaces/api/workspaces/7/release';
   const INTEGRATE_URL = '/workspaces/api/workspaces/7/integrate';
 
   beforeEach(() => {
@@ -109,21 +79,12 @@ describe('MergePanel', () => {
   afterEach(() => http.verify());
 
   /** Mount the panel for one workspace. Called by every test, because the door is an input. */
-  async function mount(dto: WorkspaceDto = workspace(), mainBranch = 'main'): Promise<void> {
+  async function mount(dto: WorkspaceDto = STACKED, mainBranch = 'main'): Promise<void> {
     fixture = TestBed.createComponent(MergePanel);
     fixture.componentRef.setInput('workspace', dto);
-    fixture.componentRef.setInput('repositoryId', 'repo-1');
     fixture.componentRef.setInput('mainBranch', mainBranch);
     element = fixture.nativeElement as HTMLElement;
     await settle();
-  }
-
-  /**
-   * Shorten the poll from seconds to milliseconds — only in the tests that drive a request to its
-   * end. Everywhere else the default keeps the wire quiet, so `http.verify()` stays meaningful.
-   */
-  function fastPolls(): void {
-    (fixture.componentInstance as unknown as { pollEveryMs: number }).pollEveryMs = 5;
   }
 
   /**
@@ -182,56 +143,48 @@ describe('MergePanel', () => {
   }
 
   /** Open the door this row offers and send a summary through it. */
-  async function openAndSubmit(text = 'teach the explorer to group runs'): Promise<void> {
+  async function openAndSubmit(text = 'land the task on its epic'): Promise<void> {
     await press('…');
     await type(text);
     await submit();
   }
 
   /** Fail the pending call with a status and body, then settle. */
-  async function reject(
-    status: number,
-    body: Record<string, unknown>,
-    url = RELEASE_URL,
-  ): Promise<void> {
-    http.expectOne(url).flush(body, { status, statusText: 'Error' });
+  async function reject(status: number, body: Record<string, unknown>): Promise<void> {
+    http.expectOne(INTEGRATE_URL).flush(body, { status, statusText: 'Error' });
     await settle();
   }
 
-  it('offers the release door to work branched off the default branch', async () => {
-    await mount();
-    expect(button('Release…')).toBeTruthy();
-    expect(element.querySelector('input.summary')).toBeNull();
-    expect(element.textContent).toContain('asks for a release into');
-    expect(element.textContent).toContain('the gates land it when the build is green');
-  });
-
-  it('offers the integrate door to a workspace parented on anything else', async () => {
+  it('offers the integrate door to a workspace parented on anything but the default branch', async () => {
     await mount(STACKED);
     expect(button('Integrate…')).toBeTruthy();
+    expect(element.querySelector('input.summary')).toBeNull();
     expect(element.textContent).toContain('epic/explorer');
     expect(element.textContent).toContain('no release');
   });
 
+  /**
+   * The row that used to say Release. The door left qits-workspaces, so the press would 404 — and a
+   * dead button reads as the platform being broken rather than as the work belonging elsewhere.
+   */
+  it('offers no door to work parented on the default branch, and says where releasing happens', async () => {
+    await mount(workspace());
+
+    expect([...element.querySelectorAll('button')]).toEqual([]);
+    const text = element.textContent ?? '';
+    expect(text).toContain('written by the release flow alone');
+    expect(text).toContain('release request');
+    expect(text).toContain('Projects');
+  });
+
   it('reads the door from the repository’s own default branch, not from the word “main”', async () => {
-    // A repository on `trunk` releases work parented on `trunk`; a workspace off `main` there is
-    // ordinary stacked work and integrates.
+    // A repository on `trunk` has no door for work parented on `trunk`; a workspace off `main` there
+    // is ordinary stacked work and integrates.
     await mount(workspace({ parent: 'trunk' }), 'trunk');
-    expect(button('Release…')).toBeTruthy();
+    expect(element.querySelector('.no-door')).not.toBeNull();
 
     await mount(workspace({ parent: 'main' }), 'trunk');
     expect(button('Integrate…')).toBeTruthy();
-  });
-
-  it('previews the release commit, with the version left undecided', async () => {
-    await mount();
-    await press('Release…');
-    await type('teach the explorer to group runs');
-
-    expect(element.querySelector('.preview')?.textContent).toContain(
-      'release(YYYY.MMDD.HHMMSS): teach the explorer to group runs',
-    );
-    expect(summaryInput().maxLength).toBe(100);
   });
 
   it('previews the integrate commit exactly, because its scope is a branch it knows', async () => {
@@ -242,136 +195,55 @@ describe('MergePanel', () => {
     expect(element.querySelector('.preview')?.textContent).toContain(
       'integrate(task/group-runs): land the task on its epic',
     );
+    expect(summaryInput().maxLength).toBe(100);
   });
 
   it('refuses a blank summary before the service has to', async () => {
-    await mount();
-    await press('Release…');
-    expect(button('Release into main').disabled).toBe(true);
-
-    await type('   ');
-    expect(button('Release into main').disabled).toBe(true);
-
-    await type('something');
-    expect(button('Release into main').disabled).toBe(false);
-  });
-
-  it('sends the trimmed summary to the release route and holds the request on screen', async () => {
-    await mount();
-    await press('Release…');
-    await type('  teach the explorer to group runs  ');
-    await submit();
-
-    const request = http.expectOne(RELEASE_URL);
-    expect(request.request.body).toEqual({ summary: 'teach the explorer to group runs' });
-    expect(element.querySelector('.working')?.textContent).toContain('Asking for a release');
-
-    request.flush(REQUESTED);
-    await settle();
-
-    // Nothing merged yet: the panel says so and follows the request rather than claiming success.
-    const surface = element.querySelector('.surface-requested');
-    expect(surface?.textContent).toContain('Release requested');
-    expect(surface?.textContent).toContain('Nothing has merged yet');
-    expect(surface?.textContent).toContain('9f2c1ab');
-  });
-
-  it('sends an integrate to its own route, and does not promise a version while working', async () => {
     await mount(STACKED);
     await press('Integrate…');
-    await type('land the task on its epic');
+    expect(button('Integrate into epic/explorer').disabled).toBe(true);
+
+    await type('   ');
+    expect(button('Integrate into epic/explorer').disabled).toBe(true);
+
+    await type('something');
+    expect(button('Integrate into epic/explorer').disabled).toBe(false);
+  });
+
+  it('sends the trimmed summary, and promises no version while it works', async () => {
+    await mount(STACKED);
+    await press('Integrate…');
+    await type('  land the task on its epic  ');
     await submit();
 
     const request = http.expectOne(INTEGRATE_URL);
     expect(request.request.body).toEqual({ summary: 'land the task on its epic' });
+    expect(element.querySelector('.working')?.textContent).toContain('Merging and pushing');
     expect(element.querySelector('.working')?.textContent).not.toContain('version');
 
     request.flush(INTEGRATE);
     await settle();
   });
 
-  it('follows the request to RELEASED, shows the version, and announces the release', async () => {
-    await mount();
-    fastPolls();
-    const landed: MergeResult[] = [];
-    fixture.componentInstance.merged.subscribe((result) => landed.push(result));
-
-    await openAndSubmit();
-    http.expectOne(RELEASE_URL).flush(REQUESTED);
-    await settle();
-    expect(element.querySelector('.surface-requested')).toBeTruthy();
-    expect(landed).toEqual([]);
-
-    // The next poll finds the gates done and the release landed — the version exists only now.
-    await nextPoll();
-    http.expectOne(POLL_URL).flush(RELEASED);
-    await settle();
-
-    const done = element.querySelector('.surface-done');
-    expect(done?.textContent).toContain('2026.731.193059');
-    expect(done?.textContent).toContain('9f2c1ab');
-    expect(done?.textContent).toContain('explorer-grouping');
-    // Seven characters is a label; the whole sha is the fact, and it is what gets pasted.
-    expect(done?.querySelector('.sha')?.getAttribute('title')).toBe(RELEASED.request.commitSha);
-    expect(landed).toEqual([
-      {
-        action: 'release',
-        version: '2026.731.193059',
-        commitSha: RELEASED.request.commitSha,
-        branch: 'explorer-grouping',
-        targetBranch: 'main',
-      },
-    ]);
-  });
-
-  it('shows the gates’ refusal with the request’s own sentence', async () => {
-    await mount();
-    fastPolls();
-    const landed: MergeResult[] = [];
-    fixture.componentInstance.merged.subscribe((result) => landed.push(result));
-
-    await openAndSubmit();
-    http.expectOne(RELEASE_URL).flush(REQUESTED);
-    await settle();
-
-    await nextPoll();
-    http.expectOne(POLL_URL).flush({
-      request: {
-        ...RELEASED.request,
-        state: 'REJECTED',
-        version: null,
-        detail: 'Gating run run-9 finished FAILED for 9f2c1ab3',
-      },
-    });
-    await settle();
-
-    const surface = element.querySelector('.surface-gated');
-    expect(surface?.textContent).toContain('The gates did not release this');
-    expect(surface?.textContent).toContain('Gating run run-9 finished FAILED');
-    expect(landed).toEqual([]);
-  });
-
-  it('shows an integrate’s sha and target, and draws no empty version slot', async () => {
+  it('shows the sha and the target it landed on, and announces the merge', async () => {
     await mount(STACKED);
     const landed: MergeResult[] = [];
     fixture.componentInstance.merged.subscribe((result) => landed.push(result));
 
-    await openAndSubmit('land the task on its epic');
+    await openAndSubmit();
     http.expectOne(INTEGRATE_URL).flush(INTEGRATE);
     await settle();
 
     const done = element.querySelector('.surface-done');
     expect(done?.textContent).toContain('Integrated into epic/explorer');
     expect(done?.textContent).toContain('4b5c6d7');
+    // Seven characters is a label; the whole sha is the fact, and it is what gets pasted.
     expect(done?.querySelector('.sha')?.getAttribute('title')).toBe(INTEGRATE.commitSha);
-    // There is no version, so there is no version — not a label with nothing under it.
+    // There is no version anywhere in this application now — not a label with nothing under it.
     expect(done?.textContent).not.toContain('Version');
-    expect(done?.querySelector('.version')).toBeNull();
     expect(done?.textContent).toContain('nothing was released');
     expect(landed).toEqual([
       {
-        action: 'integrate',
-        version: null,
         commitSha: INTEGRATE.commitSha,
         branch: 'task/group-runs',
         targetBranch: 'epic/explorer',
@@ -380,7 +252,7 @@ describe('MergePanel', () => {
   });
 
   it('reports a merge conflict honestly, with the files and with what was not touched', async () => {
-    await mount();
+    await mount(STACKED);
     await openAndSubmit();
     await reject(409, {
       message: 'merge conflict in 2 files',
@@ -390,33 +262,17 @@ describe('MergePanel', () => {
     const surface = element.querySelector('.surface-conflict');
     expect(surface?.textContent).toContain('Merge conflict');
     expect(surface?.textContent).toContain('Nothing landed');
+    expect(surface?.textContent).toContain('epic/explorer');
     expect([...(surface?.querySelectorAll('.files li') ?? [])].map((li) => li.textContent)).toEqual(
       ['pom.xml', 'src/main/java/A.java'],
     );
     expect(surface?.textContent).toContain('merge conflict in 2 files');
   });
 
-  it('draws the same conflict surface for an integrate, naming the parent it did not touch', async () => {
-    await mount(STACKED);
-    await openAndSubmit('land the task on its epic');
-    await reject(
-      409,
-      { reason: 'CONFLICT', message: 'merge conflict', conflicts: ['pom.xml'] },
-      INTEGRATE_URL,
-    );
-
-    const surface = element.querySelector('.surface-conflict');
-    expect(surface?.textContent).toContain('Merge conflict');
-    expect(surface?.textContent).toContain('epic/explorer');
-    expect([...(surface?.querySelectorAll('.files li') ?? [])].map((li) => li.textContent)).toEqual(
-      ['pom.xml'],
-    );
-  });
-
   it('draws a conflict without a file list rather than an empty list', async () => {
     // The platform's error envelope carries only `message` today, so this is the shape a conflict
     // most likely arrives in — and it must still be a conflict, not a bare status code.
-    await mount();
+    await mount(STACKED);
     await openAndSubmit();
     await reject(409, { message: 'merge conflict: README.md' });
 
@@ -426,117 +282,79 @@ describe('MergePanel', () => {
   });
 
   it('offers one more press when the target moved, keeping the summary', async () => {
-    await mount();
-    await openAndSubmit('teach the explorer to group runs');
+    await mount(STACKED);
+    await openAndSubmit('land the task on its epic');
     await reject(409, { message: 'push rejected: not a fast-forward' });
 
-    expect(element.querySelector('.surface-moved')?.textContent).toContain('moved');
-    expect(element.textContent).toContain('no version was spent');
+    const surface = element.querySelector('.surface-moved');
+    expect(surface?.textContent).toContain('moved');
+    expect(surface?.textContent).toContain('Nothing landed here.');
+    // Nothing here stamps a version any more, so nothing here claims one was spent.
+    expect(surface?.textContent).not.toContain('version');
 
-    // The retry is a press, never automatic: a release is not idempotent.
+    // The retry is a press, never automatic.
     http.verify();
     await press('Try again');
 
-    const retry = http.expectOne(RELEASE_URL);
-    expect(retry.request.body).toEqual({ summary: 'teach the explorer to group runs' });
-    retry.flush(REQUESTED);
+    const retry = http.expectOne(INTEGRATE_URL);
+    expect(retry.request.body).toEqual({ summary: 'land the task on its epic' });
+    retry.flush(INTEGRATE);
     await settle();
   });
 
-  it('does not claim a version was spent when an integrate loses the race', async () => {
-    await mount(STACKED);
-    await openAndSubmit('land the task on its epic');
-    await reject(
-      409,
-      { reason: 'NOT_FAST_FORWARD', message: 'epic/explorer moved' },
-      INTEGRATE_URL,
-    );
-
-    const surface = element.querySelector('.surface-moved');
-    expect(surface?.textContent).toContain('Nothing landed here.');
-    expect(surface?.textContent).not.toContain('version');
-  });
-
   it('treats “already integrated” as news, not as a failure, and offers the refresh', async () => {
-    await mount();
+    await mount(STACKED);
     let refreshed = 0;
     fixture.componentInstance.refresh.subscribe(() => (refreshed += 1));
 
     await openAndSubmit();
-    await reject(409, { message: 'branch is already integrated into main' });
+    await reject(409, { message: 'branch is already integrated into epic/explorer' });
 
     const surface = element.querySelector('.surface-already');
     expect(surface?.textContent).toContain('Already integrated');
-    expect(surface?.textContent).toContain('no second release');
+    expect(surface?.textContent).toContain('nothing was merged a second time');
 
     await press('Refresh the list');
     expect(refreshed).toBe(1);
   });
 
-  it('shows an unrecognised refusal in the service’s own words, under this row’s door', async () => {
-    await mount();
+  it('shows an unrecognised refusal in the service’s own words', async () => {
+    await mount(STACKED);
     await openAndSubmit();
     await reject(409, { message: 'the workspace is not ACTIVE' });
 
     const surface = element.querySelector('.surface-refused');
-    expect(surface?.textContent).toContain('Release was refused');
+    expect(surface?.textContent).toContain('Integrate was refused');
     expect(surface?.textContent).toContain('the workspace is not ACTIVE');
     expect(element.querySelector('.surface-conflict')).toBeNull();
   });
 
-  it('answers the wrong door with the right one, and sends the same summary through it', async () => {
-    // The row said integrate, from a `parent` the list read a while ago. The service's main-target
-    // guard is the authority, so its answer overrules the reading — and the way out is the other
-    // door, offered rather than described.
+  /**
+   * The row said integrate, from a `parent` the list read a while ago, and the service's main-target
+   * guard is the authority. There is no second door here to hand the person to any more — the branch
+   * is written by a release request in qits-projects — so the surface says that and offers the
+   * refresh, rather than a button that would 404.
+   */
+  it('answers the wrong door with where the right one is, not with another button', async () => {
     await mount(STACKED);
     await openAndSubmit('land the task on its epic');
-    await reject(
-      409,
-      { reason: 'RELEASE_REQUIRED', message: 'target main requires a release' },
-      INTEGRATE_URL,
-    );
-
-    const surface = element.querySelector('.surface-release-required');
-    expect(surface?.textContent).toContain('has one door');
-    expect(surface?.textContent).toContain('target main requires a release');
-    expect(element.querySelector('.surface-refused')).toBeNull();
-
-    // The switch stops at the form: this press now stamps a version and publishes, which is a
-    // different act from the one that was asked for, so it is confirmed rather than assumed.
-    await press('Release into main instead');
-    expect(summaryInput().value).toBe('land the task on its epic');
-    expect(element.querySelector('.preview')?.textContent).toContain(
-      'release(YYYY.MMDD.HHMMSS): land the task on its epic',
-    );
-    expect(button('Release into main').disabled).toBe(false);
-    http.verify();
-
-    await submit();
-    const retry = http.expectOne(RELEASE_URL);
-    expect(retry.request.body).toEqual({ summary: 'land the task on its epic' });
-    retry.flush(REQUESTED);
-    await settle();
-
-    expect(element.querySelector('.surface-requested')?.textContent).toContain(
-      'Release requested',
-    );
-  });
-
-  it('offers the summary back, not a loop, when the release door itself is guarded', async () => {
-    // Both endpoints throw RELEASE_REQUIRED, so a release can meet it too. "Release instead" would
-    // be advice to do what just failed.
-    await mount();
-    await openAndSubmit();
     await reject(409, { reason: 'RELEASE_REQUIRED', message: 'target main requires a release' });
 
     const surface = element.querySelector('.surface-release-required');
-    expect(surface?.textContent).toContain('has one door');
-    expect(surface?.textContent).not.toContain('instead');
-    expect(button('Back to the summary')).toBeTruthy();
+    expect(surface?.textContent).toContain('is not written here');
+    expect(surface?.textContent).toContain('release request');
+    expect(surface?.textContent).toContain('Projects');
+    expect(surface?.textContent).toContain('target main requires a release');
+    expect(element.querySelector('.surface-refused')).toBeNull();
+    expect(
+      [...element.querySelectorAll('button')].map((candidate) =>
+        (candidate.textContent ?? '').trim(),
+      ),
+    ).toEqual(['Refresh the list', 'Close']);
   });
 
   it('admits it does not know what happened when the service does not answer', async () => {
-    await mount();
+    await mount(STACKED);
     await openAndSubmit();
     await reject(500, { message: 'push failed' });
 
@@ -546,7 +364,7 @@ describe('MergePanel', () => {
   });
 
   it('goes back to the field with the text still in it', async () => {
-    await mount();
+    await mount(STACKED);
     await openAndSubmit('a summary worth keeping');
     await reject(409, { message: 'the workspace is not ACTIVE' });
 

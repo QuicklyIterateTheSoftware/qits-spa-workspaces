@@ -32,7 +32,6 @@
 
     <app-status-strip
       [workspace]="ws"
-      [repositoryId]="repositoryId()"
       [mainBranch]="mainBranch()"
       [reachability]="reachability()"
       [live]="live()"
@@ -46,9 +45,6 @@
         <ul>
           @for (record of landed(); track record.commitSha) {
             <li>
-              @if (record.version) {
-                <strong>{{ record.version }}</strong> —
-              }
               <code>{{ record.branch }}</code> → <code>{{ record.targetBranch }}</code
               >, merge commit <code>{{ record.commitSha }}</code>
             </li>
