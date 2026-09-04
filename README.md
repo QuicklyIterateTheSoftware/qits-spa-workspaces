@@ -1,11 +1,12 @@
 # qits-workspaces-frontend
 
-The workspaces UI: what is in flight in a repository, and the two doors that send a workspace home.
+The workspaces UI: what is in flight in a repository, and the one door that sends a workspace home.
 Served by qits-workspaces itself at the root of its own host (`workspaces.<env>.<domain>/`) through
 Quinoa; it ships no image.
 
 - **`/`** — a repository's live workspaces, each with the one action its branch calls
-  for: **Release** or **Integrate**.
+  for: **Integrate**, or — for work aimed at the default branch — the sentence saying where
+  releasing happens instead.
 - **`/repositories/{repositoryId}/workspaces/{id}?tab=…`** — one workspace's detail view:
   the room you sit in while a coding agent changes it.
 - **`/editor`** — the door to this project's browser VS Code, and the wait while it comes up.
@@ -31,9 +32,9 @@ transient Starting tab, and the live channel. The six panels land one workstream
 which one until it does.
 
 **It reads three things and opens one stream.** The repository (for its default branch, which is
-what decides the door home), the repository's workspace list (one entry feeds the header, the strip
-**and** the activity bar), and the workspace's active technical process. Then one `EventSource` on
-`/workspaces/api/workspaces/{id}/events`. Nothing on the page polls: the channel carries payload-free
+what decides whether there is a door home at all), the repository's workspace list (one entry feeds
+the header, the strip **and** the activity bar), and the workspace's active technical process. Then
+one `EventSource` on `/workspaces/api/workspaces/{id}/events`. Nothing on the page polls: the channel carries payload-free
 topic names, each panel re-fetches through the ordinary REST endpoints when its topic ticks, and an
 idle workspace produces no traffic at all. A fourth read happens in exactly one case — the id is not
 in the active list, which means the work has resolved.
@@ -124,44 +125,51 @@ do end something, and they are presses. Recreate is refused with a `400` unless 
 provably clean; this page cannot know that in advance, because the door answers no `clean` field, so
 the refusal is rendered as the sentence it is rather than as a status code.
 
-## Releasing and integrating
+## Integrating, and where releasing went
 
-**Two processes, not one action with a toggle.**
+**One process, and it is not a release.**
 
 | Door          | Request                                      | Lands on                      | Commit subject                   | Answer                              |
 | ------------- | -------------------------------------------- | ----------------------------- | -------------------------------- | ----------------------------------- |
-| **Release**   | `POST …/workspaces/{id}/release {summary}`   | the repository's `mainBranch` | `release(<version>): <summary>`  | `{version, commitSha, branch}`      |
 | **Integrate** | `POST …/workspaces/{id}/integrate {summary}` | the workspace's parent branch | `integrate(<branch>): <summary>` | `{commitSha, branch, targetBranch}` |
 
-Release merges, stamps a CalVer version and pushes — one commit carrying both. It is the only way
-into the default branch. Integrate is a plain merge into the parent: a `task/*` workspace lands on
-its `epic/*`, no version is stamped and nothing is published; the epic is what gets released later.
+Integrate is a plain merge into the parent: a `task/*` workspace lands on its `epic/*`, no version
+is stamped and nothing is published. **Releasing is not on this screen and not in this service.**
+qits-workspaces' release door is gone — `POST …/workspaces/{id}/release` answers 404, as do
+`/branches/release` and `/branches/execute-release` — because the default branch is written by
+qits-projects: a release request folds its named sources onto `release/<id>`, the QA pipeline has to
+come back green on that fold, Auto Release stamps the CalVer and tags, and `main` is merged once the
+deployment is live. So the epic that used to be "released later" from here is released later
+*there*.
 
-**Neither request names a target.** Release always lands on `mainBranch` and integrate always lands
-on the parent, and both are facts the service already holds — so a client that could name a target
-would be describing an API that does not exist.
+**The request names no target.** Integrate always lands on the parent, which is a fact the service
+already holds — so a client that could name a target would be describing an API that does not exist.
 
-**A row offers one door, not two.** Which one is read from the workspace's `parent`: parented on
-`mainBranch` means release, anything else means integrate. That reading is the client's and never
-the authority — an integrate aimed at the default branch is refused with a `409` naming the release
-door, so a stale list produces a clear refusal instead of a wrong merge.
+**A row offers one door, or none at all.** It is read from the workspace's `parent`: parented on
+anything but `mainBranch` means integrate, and parented on `mainBranch` means no button — just the
+sentence saying that branch is written by the release flow and that a release request in Projects is
+the way in. A disabled button was the other option and it is the wrong one: there is nothing here to
+enable, and a dead affordance reads as the platform being broken rather than as the work belonging
+somewhere else. That reading is the client's and never the authority — an integrate aimed at the
+default branch is refused with a `409`, so a stale list produces a clear refusal instead of a wrong
+merge.
 
-The summary field previews the subject it will write. A release's version is left as
-`YYYY.MMDD.HHMMSS`, because the stamp comes from the server's clock and any version rendered here
-first would be a number appearing in no commit anywhere. An integrate's scope is the source branch,
-which is already known, so that preview is exact.
+The summary field previews the subject it will write, and the preview is exact: an integrate's scope
+is the source branch, which the browser already knows. Nothing here is left as a placeholder any
+more — the release preview that once sat beside it could only render `YYYY.MMDD.HHMMSS`, because the
+stamp came from the server's clock, and it left with the door.
 
 **The six outcomes are six surfaces, not one red box**, because each is a different thing to do
-next. Both doors share them, because both answer out of the same `409` family:
+next, and the four middle ones all answer out of the same `409` family:
 
-| Outcome                 | What it means                                                 | The way out               |
-| ----------------------- | ------------------------------------------------------------- | ------------------------- |
-| **Landed**              | merge sha, branch and target — plus the version, on a release | nothing — CI is building  |
-| **Merge conflict**      | the branch does not apply; nothing landed                     | resolve, then press again |
-| **Target moved**        | another merge won the race; no version spent                  | press again, same summary |
-| **Already integrated**  | the branch is in; nothing was done twice                      | refresh the list          |
-| **Release required**    | the target is the default branch, which has one door          | the release door, offered |
-| **Refused / no answer** | the service's own sentence, verbatim                          | as it says                |
+| Outcome                 | What it means                                       | The way out                  |
+| ----------------------- | --------------------------------------------------- | ---------------------------- |
+| **Integrated**          | merge sha, branch and target — and no version, ever | nothing — the work is in     |
+| **Merge conflict**      | the branch does not apply; nothing landed           | resolve, then press again    |
+| **Target moved**        | another merge won the race                          | press again, same summary    |
+| **Already integrated**  | the branch is in; nothing was done twice            | refresh the list             |
+| **Release required**    | the target is the default branch, written elsewhere | refresh; release in Projects |
+| **Refused / no answer** | the service's own sentence, verbatim                | as it says                   |
 
 The four middle rows all arrive as `409`. The platform's error envelope carries only `{"message"}`
 today, so `merge-outcome.ts` reads an optional structured `reason` (and an optional `conflicts` file
@@ -170,19 +178,15 @@ refusal in the server's words rather than guessed into one of the others. `PUSH_
 refusal and deliberately not a lost race: the family spells that `NOT_FAST_FORWARD`, so a declared
 push rejection is the git host saying no for a reason "press it again" cannot fix.
 
-`RELEASE_REQUIRED` is the one 409 with a button rather than a sentence. It is qits-workspaces'
-main-target guard, thrown by both endpoints, and it means the row read a `parent` that has since
-moved on — nothing is wrong with the work. The surface offers **Release into `<main>` instead**,
-which overrules the row's own reading and returns to the summary with the sentence intact and the
-release subject in the preview. It stops there rather than sending: the press being offered stamps a
-version and publishes, which is not the act that was asked for, so it is confirmed by one more
-press. Meeting the guard on the release door itself offers the summary back instead, because
-"release instead" would be advice to redo what just failed.
+`RELEASE_REQUIRED` is qits-workspaces' main-target guard, and it means the row read a `parent` that
+has since moved on — nothing is wrong with the work, and nothing here can land it either. The
+surface says so and offers a refresh: it used to offer **Release into `<main>` instead**, and that
+button pointed at a door that no longer exists, so what is left is where releasing actually happens.
 
 What landed is recorded **above** the list, not in the row that produced it: a merge resolves the
 workspace, so the next listing no longer contains it, and a success surface living in that row would
-take the sha — and the version, when there is one — off screen moments after producing them. An
-integrate has no version, so its record and its surface draw none rather than an empty slot.
+take the sha off screen moments after producing it. An integrate has no version, so its record and
+its surface draw none rather than an empty slot.
 
 `src/app/api/` holds hand-written interfaces mirroring the two services' wire shapes, one injectable
 service each, over `HttpClient` on the fetch backend. Nothing is generated, and nothing is shared
